@@ -1,4 +1,4 @@
-module.exports = function(config) {
+module.exports = function (config) {
 
   config = Object.assign({
     prefix: 'snub',
@@ -23,8 +23,6 @@ module.exports = function(config) {
     pattern = pattern.split(':');
     pattern.shift();
     pattern = pattern.join(':');
-
-
 
     var e = eventsRegistered.filter(e => e.channel == pattern) || [];
     e.sort(() => Math.round(Math.random() * 2) - 1).forEach(e => {
@@ -80,7 +78,7 @@ module.exports = function(config) {
     });
   });
 
-  this.on = function(ichannel, method, once) {
+  this.on = function (ichannel, method, once) {
     var [channel, namespace] = ichannel.split('.');
 
     if (config.debug)
@@ -106,7 +104,11 @@ module.exports = function(config) {
     });
   };
 
-  this.off = function(ichannel) {
+  this.once = (channel, method) => {
+    this.on(channel, method, true);
+  };
+
+  this.off = function (ichannel) {
     var [channel, namespace] = ichannel.split('.');
     if (config.debug)
       console.log('Snub.off => ', prefix + channel);
@@ -119,7 +121,7 @@ module.exports = function(config) {
   };
 
   // send to one listener
-  this.mono = function(channel, data) {
+  this.mono = function (channel, data) {
     if (config.debug)
       console.log('Snub.mono => ', prefix + channel);
     var obj = {
@@ -129,17 +131,17 @@ module.exports = function(config) {
     };
     var tmpReply;
     return {
-      replyAt: function(replyMethod) {
+      replyAt: function (replyMethod) {
         obj.reply = (typeof replyMethod == 'function' ? true : false);
         if (obj.reply)
           tmpReply = replyMethod;
         return this;
       },
-      send: function(cb) {
-        cb = (typeof cb == 'function' ? cb : function() {});
+      send: function (cb) {
+        cb = (typeof cb == 'function' ? cb : function () {});
         pub.set(prefix + '_mono:' + obj.key, JSON.stringify(obj)).then(res => {
           if (obj.reply) {
-            snubSelf.on(prefix + '_monoreply:' + obj.key, tmpReply);
+            snubSelf.on(prefix + '_monoreply:' + obj.key, tmpReply, true);
             setTimeout(() => {
               snubSelf.off(prefix + '_monoreply:' + obj.key);
             }, config.timeout);
@@ -157,7 +159,7 @@ module.exports = function(config) {
   };
 
   // sending messages to everone listening
-  this.poly = function(channel, data) {
+  this.poly = function (channel, data) {
     if (config.debug)
       console.log('Snub.poly => ', prefix + channel);
     var obj = {
@@ -165,18 +167,18 @@ module.exports = function(config) {
       contents: data,
       reply: false
     };
-    var tmpReply;
     return {
-      replyAt: function(replyMethod) {
-        if (typeof replyMethod != 'function') return this;
-        snubSelf.on(prefix + '_monoreply:' + obj.key, reply);
+      replyAt: function (replyMethod) {
+        obj.reply = (typeof replyMethod == 'function' ? true : false);
+        if (!obj.reply) return this;
+        snubSelf.on(prefix + '_monoreply:' + obj.key, replyMethod);
         setTimeout(() => {
           snubSelf.off(prefix + '_monoreply:' + obj.key);
         }, config.timeout);
         return this;
       },
-      send: function(cb) {
-        cb = (typeof cb == 'function' ? cb : function() {});
+      send: function (cb) {
+        cb = (typeof cb == 'function' ? cb : function () {});
         pub.publish(prefix + channel, JSON.stringify(obj), (err, count) => {
           cb((err || count < 1 ? false : true));
         });
@@ -194,7 +196,7 @@ module.exports = function(config) {
 
   this.generateUID = generateUID;
 
-  this.use = function(method) {
+  this.use = function (method) {
     if (typeof method == 'function')
       method(snubSelf);
   };

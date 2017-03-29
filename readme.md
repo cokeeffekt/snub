@@ -6,7 +6,7 @@ Pub Sub message system, supports middleware, single delivery, replys and cluster
 
 `npm install snub`
 
-##### Basic Example
+#### Basic Example
 
 With redis installed and running with default port and no auth.
 
@@ -22,3 +22,55 @@ snub.on('hello', (payload) => {
 // send 'hello' to single listener.
 snub.mono('hello', 'world').send();
 ```
+
+For further examples take a look in [examples](/examples).
+
+#### Advanced Setup
+Optional config, defaults are applied if omitted.
+```javascript
+const Snub = require('snub');
+const snub = new Snub({
+    prefix: 'snub', // prefix all snub pub/sub messages
+    port: 6379, // redis port
+    host: '127.0.0.1', // redis host
+    debug: false, // dump debug junk
+    timeout: 5000 // reply timeout, we cant listen forever,
+    auth: null, // redis auth
+  });
+```
+
+### API
+
+##### `snub.on('eventname', (payload, [reply]) => {});`
+
+ - Method is run when an event is triggered.
+ - Use patterns in subscribers like so `'h[ae]llo'` or `hell*`
+ - Reply is optionaly a function to reply at with a single param. `reply({})`
+ - you can also namespace events `hello.one` to allow easy removal with `snub.off('hello.one')`
+
+##### `snub.once('eventname', (payload, [reply]) => {});`
+
+Same as .on but event will only trigger once.
+
+##### `snub.off('eventname');`
+
+ - Remove all event listeners by name
+ - append namespace to remove single listener if you have mutliple.
+
+##### `snub.poly('eventname', payload).send([function]);`
+
+Emits an event trigger with the payload .send() accepts and optional callback function which carries a boolean value which will indicate whether or not a listener heard the event trigger. Poly will deliver the message and payload to all listeners.
+
+##### `snub.poly('eventname').replyAt(function()).send([function]);`
+
+Allows the event to be replied to, since this will get delivered to all listeners the reply will prossibly be responded to multiple times.
+
+##### `snub.mono('eventname', payload).send([function]);`
+
+Emits an event trigger with the payload .send() accepts and optional callback function which carries a boolean value which will indicate whether or not a listener heard the event trigger. Mono will only be delivered to a single listener, this is first come first served, there is not methodology or way to control this as of yet, think of it as random delivery.
+
+##### `snub.poly('eventname', payload).replyAt(function()).send([function]);`
+
+Allows the event to be replied to, reply can only run once.
+
+

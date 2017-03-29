@@ -9,6 +9,3 @@ snub.on('hello', (payload) => {
 
 // send 'hello' to single listener.
 snub.mono('hello', 'world').send();
-
-
-snub.off('hello');
