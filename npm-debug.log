@@ -1,0 +1,110 @@
+0 info it worked if it ends with ok
+1 verbose cli [ '/Users/patrik.hartwig/.nvm/versions/node/v6.10.1/bin/node',
+1 verbose cli   '/Users/patrik.hartwig/.nvm/versions/node/v6.10.1/bin/npm',
+1 verbose cli   'publish' ]
+2 info using npm@3.10.10
+3 info using node@v6.10.1
+4 verbose publish [ '.' ]
+5 silly cache add args [ '.', null ]
+6 verbose cache add spec .
+7 silly cache add parsed spec Result {
+7 silly cache add   raw: '.',
+7 silly cache add   scope: null,
+7 silly cache add   escapedName: null,
+7 silly cache add   name: null,
+7 silly cache add   rawSpec: '.',
+7 silly cache add   spec: '/Users/patrik.hartwig/Gits/tests/snub',
+7 silly cache add   type: 'directory' }
+8 verbose addLocalDirectory /Users/patrik.hartwig/.npm/snub/1.0.0/package.tgz not in flight; packing
+9 verbose correctMkdir /Users/patrik.hartwig/.npm correctMkdir not in flight; initializing
+10 info lifecycle snub@1.0.0~prepublish: snub@1.0.0
+11 silly lifecycle snub@1.0.0~prepublish: no script for prepublish, continuing
+12 verbose tar pack [ '/Users/patrik.hartwig/.npm/snub/1.0.0/package.tgz',
+12 verbose tar pack   '/Users/patrik.hartwig/Gits/tests/snub' ]
+13 verbose tarball /Users/patrik.hartwig/.npm/snub/1.0.0/package.tgz
+14 verbose folder /Users/patrik.hartwig/Gits/tests/snub
+15 verbose addLocalTarball adding from inside cache /Users/patrik.hartwig/.npm/snub/1.0.0/package.tgz
+16 verbose correctMkdir /Users/patrik.hartwig/.npm correctMkdir not in flight; initializing
+17 silly cache afterAdd snub@1.0.0
+18 verbose afterAdd /Users/patrik.hartwig/.npm/snub/1.0.0/package/package.json not in flight; writing
+19 verbose correctMkdir /Users/patrik.hartwig/.npm correctMkdir not in flight; initializing
+20 verbose afterAdd /Users/patrik.hartwig/.npm/snub/1.0.0/package/package.json written
+21 silly publish { name: 'snub',
+21 silly publish   version: '1.0.0',
+21 silly publish   description: 'pub/sub',
+21 silly publish   main: 'snub.js',
+21 silly publish   scripts: { test: 'echo "Error: no test specified" && exit 1' },
+21 silly publish   repository:
+21 silly publish    { type: 'git',
+21 silly publish      url: 'git+https://github.com/cokeeffekt/snub.git' },
+21 silly publish   keywords: [ 'redis', 'pub', 'sub' ],
+21 silly publish   author: { name: 'Patrik Hartwig' },
+21 silly publish   license: 'ISC',
+21 silly publish   bugs: { url: 'https://github.com/cokeeffekt/snub/issues' },
+21 silly publish   homepage: 'https://github.com/cokeeffekt/snub#readme',
+21 silly publish   dependencies: { ioredis: '^2.5.0' },
+21 silly publish   readme: '# Snub\n\nPub Sub message system, supports middleware, single delivery, replys and clusterable.\n\n#### Usage\n\n`npm install snub`\n\n##### Basic Example\n\n```javascript\nconst Snub = require(\'snub\');\nconst snub = new Snub();\n\n// create listener for \'hello\'\nsnub.on(\'hello\', (payload) => {\n  console.log(\'Recieved => \', payload);\n});\n\n// send \'hello\' to single listener.\nsnub.mono(\'hello\', \'world\').send();\n```',
+21 silly publish   readmeFilename: 'readme.md',
+21 silly publish   gitHead: '74b1bb817e55684af68c33074539f27f4dce4906',
+21 silly publish   _id: 'snub@1.0.0',
+21 silly publish   _shasum: 'a7eef7e7607005e9837f00d147d860992eddf70d',
+21 silly publish   _from: '.' }
+22 verbose getPublishConfig undefined
+23 silly mapToRegistry name snub
+24 silly mapToRegistry using default registry
+25 silly mapToRegistry registry https://registry.npmjs.org/
+26 silly mapToRegistry data Result {
+26 silly mapToRegistry   raw: 'snub',
+26 silly mapToRegistry   scope: null,
+26 silly mapToRegistry   escapedName: 'snub',
+26 silly mapToRegistry   name: 'snub',
+26 silly mapToRegistry   rawSpec: '',
+26 silly mapToRegistry   spec: 'latest',
+26 silly mapToRegistry   type: 'tag' }
+27 silly mapToRegistry uri https://registry.npmjs.org/snub
+28 verbose publish registryBase https://registry.npmjs.org/
+29 silly publish uploading /Users/patrik.hartwig/.npm/snub/1.0.0/package.tgz
+30 verbose request uri https://registry.npmjs.org/snub
+31 verbose request sending authorization for write operation
+32 info attempt registry request try #1 at 2:45:21 PM
+33 verbose request using bearer token for auth
+34 verbose request id ea5f9ba8322faba0
+35 http request PUT https://registry.npmjs.org/snub
+36 http 403 https://registry.npmjs.org/snub
+37 verbose headers { 'content-type': 'application/json',
+37 verbose headers   'cache-control': 'max-age=300',
+37 verbose headers   'content-length': '95',
+37 verbose headers   'accept-ranges': 'bytes',
+37 verbose headers   date: 'Wed, 29 Mar 2017 04:45:21 GMT',
+37 verbose headers   via: '1.1 varnish',
+37 verbose headers   connection: 'keep-alive',
+37 verbose headers   'x-served-by': 'cache-bne7720-BNE',
+37 verbose headers   'x-cache': 'MISS',
+37 verbose headers   'x-cache-hits': '0',
+37 verbose headers   'x-timer': 'S1490762721.529899,VS0,VE275',
+37 verbose headers   vary: 'Accept-Encoding' }
+38 verbose request invalidating /Users/patrik.hartwig/.npm/registry.npmjs.org/snub on PUT
+39 error publish Failed PUT 403
+40 verbose stack Error: "You cannot publish over the previously published version 1.0.0." : snub
+40 verbose stack     at makeError (/Users/patrik.hartwig/.nvm/versions/node/v6.10.1/lib/node_modules/npm/node_modules/npm-registry-client/lib/request.js:302:12)
+40 verbose stack     at CachingRegistryClient.<anonymous> (/Users/patrik.hartwig/.nvm/versions/node/v6.10.1/lib/node_modules/npm/node_modules/npm-registry-client/lib/request.js:290:14)
+40 verbose stack     at Request._callback (/Users/patrik.hartwig/.nvm/versions/node/v6.10.1/lib/node_modules/npm/node_modules/npm-registry-client/lib/request.js:210:14)
+40 verbose stack     at Request.self.callback (/Users/patrik.hartwig/.nvm/versions/node/v6.10.1/lib/node_modules/npm/node_modules/request/request.js:187:22)
+40 verbose stack     at emitTwo (events.js:106:13)
+40 verbose stack     at Request.emit (events.js:191:7)
+40 verbose stack     at Request.<anonymous> (/Users/patrik.hartwig/.nvm/versions/node/v6.10.1/lib/node_modules/npm/node_modules/request/request.js:1048:10)
+40 verbose stack     at emitOne (events.js:96:13)
+40 verbose stack     at Request.emit (events.js:188:7)
+40 verbose stack     at IncomingMessage.<anonymous> (/Users/patrik.hartwig/.nvm/versions/node/v6.10.1/lib/node_modules/npm/node_modules/request/request.js:969:12)
+41 verbose statusCode 403
+42 verbose pkgid snub
+43 verbose cwd /Users/patrik.hartwig/Gits/tests/snub
+44 error Darwin 15.6.0
+45 error argv "/Users/patrik.hartwig/.nvm/versions/node/v6.10.1/bin/node" "/Users/patrik.hartwig/.nvm/versions/node/v6.10.1/bin/npm" "publish"
+46 error node v6.10.1
+47 error npm  v3.10.10
+48 error code E403
+49 error "You cannot publish over the previously published version 1.0.0." : snub
+50 error If you need help, you may report this error at:
+50 error     <https://github.com/npm/npm/issues>
+51 verbose exit [ 1, true ]
