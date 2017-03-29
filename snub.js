@@ -28,6 +28,7 @@ module.exports = function(config) {
     e.sort(() => Math.round(Math.random() * 2) - 1).forEach(e => {
       if (message.includes(prefix + '_mono:')) {
         // mono messages get delivered once.
+        var wait = Math.round(Math.random() * 4);
         setTimeout(() => {
           pub.pipeline([
             ['get', message],
@@ -52,14 +53,18 @@ module.exports = function(config) {
                 this.off(e.channel + (e.namespace ? '.' + e.namespace : ''));
             }
           });
-        }, Math.round(Math.random()));
+        }, wait);
+        console.log(wait);
 
       } else {
         // everything else goes via normal means
         var data;
         try {
           data = JSON.parse(message);
-        } catch (e) {}
+        } catch (e) {
+          if (config.debug)
+            console.log('Snub Error => ' + e);
+        }
         if (data.reply) {
           e.method(data.contents, (replyData) => {
             this.poly(prefix + '_monoreply:' + data.key, replyData).send();

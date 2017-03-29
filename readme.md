@@ -8,6 +8,8 @@ Pub Sub message system, supports middleware, single delivery, replys and cluster
 
 ##### Basic Example
 
+With redis installed and running with default port and no auth.
+
 ```javascript
 const Snub = require('snub');
 const snub = new Snub();
