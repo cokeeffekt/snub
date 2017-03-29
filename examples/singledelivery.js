@@ -1,14 +1,6 @@
 const Snub = require('../snub.js');
 
 // create multiple snub instances, and listen on each.
-
-const snub3 = new Snub({
-  debug: true
-});
-snub3.on('hello', (payload) => {
-  console.log('Recieved Instance 3 => ', payload);
-});
-
 const snub1 = new Snub();
 snub1.on('hello', (payload) => {
   console.log('Recieved Instance 1 => ', payload);
@@ -19,17 +11,22 @@ snub2.on('hello', (payload) => {
   console.log('Recieved Instance 2 => ', payload);
 });
 
+const snub3 = new Snub();
+snub3.on('hello', (payload) => {
+  console.log('Recieved Instance 3 => ', payload);
+});
 
 
-// send 'hello' to a single listener 10 times from snub1.
 
-snub1.poly('hello', 'world').send();
-//snub1.mono('hello', 'world').send();
-//snub1.mono('hello', 'world').send();
-//snub1.mono('hello', 'world').send();
-//snub1.mono('hello', 'world').send();
-//snub1.mono('hello', 'world').send();
-//snub1.mono('hello', 'world').send();
-//snub1.mono('hello', 'world').send();
-//snub1.mono('hello', 'world').send();
-//snub1.mono('hello', 'world').send();
+
+// timeout is not required, just needed for example when running multiple snub instances in single app
+setTimeout(() => {
+
+  // at this point we have three listeners we can test this buy doing the following.
+  snub1.poly('hello', 'You can see me per listener').send();
+
+
+  // send 'hello' to a single listener 1 time.
+  snub3.mono('hello', 'Im delivered only once').send();
+
+}, 500);

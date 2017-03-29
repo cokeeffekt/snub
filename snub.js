@@ -24,11 +24,14 @@ module.exports = function(config) {
     pattern.shift();
     pattern = pattern.join(':');
 
+
+
     var e = eventsRegistered.filter(e => e.channel == pattern) || [];
     e.sort(() => Math.round(Math.random() * 2) - 1).forEach(e => {
+      // mono messages get delivered once.
       if (message.includes(prefix + '_mono:')) {
-        // mono messages get delivered once.
-        var wait = Math.round(Math.random() * 4);
+        // wait is in ms, it will give all handlers a fighing chance to grab the message.
+        var wait = Math.round(Math.random() * 3);
         setTimeout(() => {
           pub.pipeline([
             ['get', message],
@@ -54,7 +57,6 @@ module.exports = function(config) {
             }
           });
         }, wait);
-        console.log(wait);
 
       } else {
         // everything else goes via normal means
@@ -83,15 +85,24 @@ module.exports = function(config) {
 
     if (config.debug)
       console.log('Snub.on => ', prefix + channel);
+
+    var ev = {
+      channel: channel,
+      namespace: namespace,
+      method: method,
+      once: once,
+      count: 0
+    };
+
+    eventsRegistered.push(ev);
+
     redis.psubscribe(prefix + channel, err => {
-      if (err) return;
-      eventsRegistered.push({
-        channel: channel,
-        namespace: namespace,
-        method: method,
-        once: once,
-        count: 0
-      });
+      if (err && config.debug) {
+        console.log('Snub Error => ' + e);
+        var evIndex = eventsRegistered.findIndex(e => e == ev);
+        eventsRegistered.splice(evIndex, 1);
+        return;
+      }
     });
   };
 
