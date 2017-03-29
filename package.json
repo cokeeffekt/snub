@@ -1,0 +1,27 @@
+{
+  "name": "snub",
+  "version": "1.0.0",
+  "description": "pub/sub",
+  "main": "snub.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cokeeffekt/snub.git"
+  },
+  "keywords": [
+    "redis",
+    "pub",
+    "sub"
+  ],
+  "author": "Patrik Hartwig",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/cokeeffekt/snub/issues"
+  },
+  "homepage": "https://github.com/cokeeffekt/snub#readme",
+  "dependencies": {
+    "ioredis": "^2.5.0"
+  }
+}
