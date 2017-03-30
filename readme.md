@@ -73,4 +73,11 @@ Emits an event trigger with the payload .send() accepts and optional callback fu
 
 Allows the event to be replied to, reply can only run once.
 
+##### `snub.use(middlewareMethod);`
+
+Snub accepts middleware, it will hand the snub instance to the middleware method.
+
+##### Some handy middleware
+ - [Snub-HTTP](https://github.com/cokeeffekt/snub-http)
+
 
