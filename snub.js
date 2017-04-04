@@ -45,9 +45,9 @@ module.exports = function (config) {
               if (data.reply) {
                 e.method(data.contents, (replyData) => {
                   this.poly(prefix + '_monoreply:' + data.key, replyData).send();
-                });
+                }, channel);
               } else {
-                e.method(data.contents);
+                e.method(data.contents, null, channel);
               }
               e.count++;
               if (e.once)
