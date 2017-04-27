@@ -61,7 +61,7 @@ Same as .on but event will only trigger once.
 
 Emits an event trigger with the payload .send() accepts and optional callback function which carries a boolean value which will indicate whether or not a listener heard the event trigger. Poly will deliver the message and payload to all listeners.
 
-##### `snub.poly('eventname').replyAt(function()).send([function]);`
+##### `snub.poly('eventname').replyAt(function(), [optional timeout]).send([function]);`
 
 Allows the event to be replied to, since this will get delivered to all listeners the reply will prossibly be responded to multiple times.
 

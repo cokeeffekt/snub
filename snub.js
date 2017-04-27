@@ -130,8 +130,10 @@ module.exports = function (config) {
       reply: false
     };
     var tmpReply;
+    var tmpTimeout;
     return {
-      replyAt: function (replyMethod) {
+      replyAt: function (replyMethod, timeout) {
+        tmpTimeout = timeout || config.timeout;
         obj.reply = (typeof replyMethod == 'function' ? true : false);
         if (obj.reply)
           tmpReply = replyMethod;
@@ -144,7 +146,7 @@ module.exports = function (config) {
             snubSelf.on(prefix + '_monoreply:' + obj.key, tmpReply, true);
             setTimeout(() => {
               snubSelf.off(prefix + '_monoreply:' + obj.key);
-            }, config.timeout);
+            }, tmpTimeout);
           }
           pub.publish(prefix + channel, prefix + '_mono:' + obj.key, (err, count) => {
             cb((err || count < 1 ? false : true));
