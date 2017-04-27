@@ -5,7 +5,11 @@ module.exports = function (config) {
     port: 6379,
     host: '127.0.0.1',
     debug: false,
-    timeout: 5000
+    timeout: 5000,
+    retryStrategy: function (times) {
+      var delay = Math.min(times * 50, 2000);
+      return delay;
+    }
   }, config || {});
 
   var snubSelf = this;
