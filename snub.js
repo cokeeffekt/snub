@@ -153,7 +153,7 @@ module.exports = function (config) {
             }, tmpTimeout);
           }
           pub.publish(prefix + channel, prefix + '_mono:' + obj.key, (err, count) => {
-            cb((err || count < 1 ? false : true));
+            cb((err || count < 1 ? 0 : count));
           });
         }).catch(err => {
           if (config.debug)
@@ -174,13 +174,14 @@ module.exports = function (config) {
       reply: false
     };
     return {
-      replyAt: function (replyMethod) {
+      replyAt: function (replyMethod, timeout) {
+        tmpTimeout = timeout || config.timeout;
         obj.reply = (typeof replyMethod == 'function' ? true : false);
         if (!obj.reply) return this;
         snubSelf.on(prefix + '_monoreply:' + obj.key, replyMethod);
         setTimeout(() => {
           snubSelf.off(prefix + '_monoreply:' + obj.key);
-        }, config.timeout);
+        }, tmpTimeout);
         return this;
       },
       send: function (cb) {

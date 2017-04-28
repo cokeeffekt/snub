@@ -59,7 +59,7 @@ Same as .on but event will only trigger once.
 
 ##### `snub.poly('eventname', payload).send([function]);`
 
-Emits an event trigger with the payload .send() accepts and optional callback function which carries a boolean value which will indicate whether or not a listener heard the event trigger. Poly will deliver the message and payload to all listeners.
+Emits an event trigger with the payload .send() accepts and optional callback function which carries a number value which will indicate the amount of listeners that heard the event trigger. Poly will deliver the message and payload to all listeners.
 
 ##### `snub.poly('eventname').replyAt(function(), [optional timeout]).send([function]);`
 
@@ -67,9 +67,9 @@ Allows the event to be replied to, since this will get delivered to all listener
 
 ##### `snub.mono('eventname', payload).send([function]);`
 
-Emits an event trigger with the payload .send() accepts and optional callback function which carries a numbrt value which will indicate the amount of listeners that heard the event trigger. Mono will only be delivered to a single listener, this is first come first served, there is not methodology or way to control this as of yet, think of it as random delivery.
+Emits an event trigger with the payload .send() accepts and optional callback function which carries a number value which will indicate the amount of listeners that heard the event trigger (will always be 0 or 1 for mono). Mono will only be delivered to a single listener, this is first come first served, there is not methodology or way to control this as of yet, think of it as random delivery.
 
-##### `snub.poly('eventname', payload).replyAt(function()).send([function]);`
+##### `snub.poly('eventname', payload).replyAt(function(), [optional timeout]).send([function]);`
 
 Allows the event to be replied to, reply can only run once.
 
