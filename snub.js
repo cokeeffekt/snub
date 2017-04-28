@@ -5,6 +5,7 @@ module.exports = function (config) {
     port: 6379,
     host: '127.0.0.1',
     debug: false,
+    monoWait: 50,
     timeout: 5000,
     retryStrategy: function (times) {
       var delay = Math.min(times * 50, 2000);
@@ -29,11 +30,12 @@ module.exports = function (config) {
     pattern = pattern.join(':');
 
     var e = eventsRegistered.filter(e => e.channel == pattern) || [];
+    // if you have multiple listeners on the same instance randomise the order mainly for the sake of it, you know in case...
     e.sort(() => Math.round(Math.random() * 2) - 1).forEach(e => {
       // mono messages get delivered once.
       if (message.includes(prefix + '_mono:')) {
         // wait is in ms, it will give all handlers a fighing chance to grab the message.
-        var wait = Math.round(Math.random() * 3);
+        var wait = Math.round(Math.random() * config.monoWait);
         setTimeout(() => {
           pub.pipeline([
             ['get', message],

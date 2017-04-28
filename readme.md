@@ -36,6 +36,7 @@ const snub = new Snub({
     debug: false, // dump debug junk
     timeout: 5000 // reply timeout, we cant listen forever,
     auth: null, // redis auth
+    monoWait: 50 // used to help mono delivery messages to get dispersed evenlyish, this is a max wait time. will randomize between 0-monoWait, if you have small amount of instances set this low. poly does not use this value.
   });
 ```
 
