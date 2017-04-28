@@ -186,7 +186,7 @@ module.exports = function (config) {
       send: function (cb) {
         cb = (typeof cb == 'function' ? cb : function () {});
         pub.publish(prefix + channel, JSON.stringify(obj), (err, count) => {
-          cb((err || count < 1 ? false : true));
+          cb((err || count < 1 ? 0 : count));
         });
       },
     };
