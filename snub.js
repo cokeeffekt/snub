@@ -162,6 +162,9 @@ module.exports = function (config) {
             console.log('ERROR Snub.mono', err);
           cb(false);
         });
+        setTimeout(() => {
+          pub.del(prefix + '_mono:' + obj.key).then().catch();
+        }, config.timeout * 2);
       },
     };
   };
