@@ -20,6 +20,8 @@ module.exports = function (config) {
   const pub = new Redis(config);
   var eventsRegistered = [];
 
+  this.redis = pub;
+
   redis.on('pmessage', (pattern, channel, message) => {
 
     if (config.debug)
