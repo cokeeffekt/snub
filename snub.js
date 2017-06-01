@@ -159,7 +159,7 @@ module.exports = function (config) {
           pub.publish(prefix + channel, prefix + '_mono:' + obj.key, (err, count) => {
             cb((err || count < 1 ? 0 : count));
           });
-          return;
+          return null;
         }).catch(err => {
           if (config.debug)
             console.log('ERROR Snub.mono', err);
