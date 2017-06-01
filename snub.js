@@ -159,13 +159,15 @@ module.exports = function (config) {
           pub.publish(prefix + channel, prefix + '_mono:' + obj.key, (err, count) => {
             cb((err || count < 1 ? 0 : count));
           });
+          return;
         }).catch(err => {
           if (config.debug)
             console.log('ERROR Snub.mono', err);
           cb(false);
         });
         setTimeout(() => {
-          pub.del(prefix + '_mono:' + obj.key).then().catch();
+          pub.del(prefix + '_mono:' + obj.key)
+            .then(res => {}).catch(err => {});
         }, config.timeout * 2);
       },
     };
