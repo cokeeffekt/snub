@@ -12,6 +12,8 @@ module.exports = function (config) {
       return delay;
     }
   }, config || {});
+  if (!config.auth)
+    delete config.auth;
 
   var snubSelf = this;
   var prefix = config.prefix.replace(/\:/igm, '') + ':';
@@ -149,7 +151,7 @@ module.exports = function (config) {
       },
       send: function (cb) {
         cb = (typeof cb == 'function' ? cb : function () {});
-        pub.set(prefix + '_mono:' + obj.key, JSON.stringify(obj)).then(res => {
+        pub.set(prefix + '_mono:' + obj.key, JSON.stringify(obj), 'EX', 1800).then(res => {
           if (obj.reply) {
             snubSelf.on(prefix + '_monoreply:' + obj.key, tmpReply, true);
             setTimeout(() => {
