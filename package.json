@@ -22,6 +22,6 @@
   },
   "homepage": "https://github.com/cokeeffekt/snub#readme",
   "dependencies": {
-    "ioredis": "^2.5.0"
+    "ioredis": "^4.11.2"
   }
 }
