@@ -26,19 +26,17 @@ module.exports = function (config) {
 
   redis.on('pmessage', (pattern, channel, message) => {
 
-    if (config.debug)
-      console.log('Snub redis.message => ', channel, pattern);
-
     pattern = pattern.split(':');
     pattern.shift();
     pattern = pattern.join(':');
 
     var e = eventsRegistered.filter(e => e.channel == pattern) || [];
     // if you have multiple listeners on the same instance randomise the order mainly for the sake of it, you know in case...
-    e.sort(() => Math.round(Math.random() * 2) - 1).forEach(e => {
+    e.sort(() => Math.round(Math.random() * 2) - 1)
+      .forEach(e => {
       // mono messages get delivered once.
       if (message.includes(prefix + '_mono:')) {
-        // wait is in ms, it will give all handlers a fighing chance to grab the message.
+        // wait is in ms, it will give all handlers a fighting chance to grab the message.
         var wait = Math.round(Math.random() * config.monoWait);
         setTimeout(() => {
           pub.pipeline([
@@ -140,42 +138,43 @@ module.exports = function (config) {
       reply: false
     };
     var tmpReply;
-    var tmpTimeout;
+    var tmpTimeout = config.timeout;
+    var tmpTs = Date.now();
     return {
-      replyAt: function (replyMethod, timeout) {
+      replyAt(replyMethod, timeout) {
         tmpTimeout = timeout || config.timeout;
         obj.reply = (typeof replyMethod == 'function' ? true : false);
         if (obj.reply)
           tmpReply = replyMethod;
         return this;
       },
-      send: function (cb) {
-        cb = (typeof cb == 'function' ? cb : function () {});
-        pub.set(prefix + '_mono:' + obj.key, JSON.stringify(obj), 'EX', 1800).then(res => {
-          if (obj.reply) {
-            snubSelf.on(prefix + '_monoreply:' + obj.key, tmpReply, true);
-            setTimeout(() => {
-              snubSelf.off(prefix + '_monoreply:' + obj.key);
-            }, tmpTimeout);
-          }
-          pub.publish(prefix + channel, prefix + '_mono:' + obj.key, (err, count) => {
-            cb((err || count < 1 ? 0 : count));
-          });
-          return null;
-        }).catch(err => {
-          if (config.debug)
-            console.log('ERROR Snub.mono', err);
-          cb(false);
-        });
-        setTimeout(() => {
-          pub.del(prefix + '_mono:' + obj.key)
-            .then(res => {}).catch(err => {});
-        }, config.timeout * 2);
+      async send(cb) {
+        await pub.set(prefix + '_mono:' + obj.key, JSON.stringify(obj), 'EX', (tmpTimeout * 2) * 1000);
+        // if obj.reply was set via replyAt
+        if (obj.reply) {
+          snubSelf.on(prefix + '_monoreply:' + obj.key, function(replyData){
+            if (config.debug)
+              console.log('Snub.mono reply => ', prefix + channel, (Date.now()-tmpTs)+'ms');
+            tmpReply(replyData);
+          }, true);
+          setTimeout(() => {
+            snubSelf.off(prefix + '_monoreply:' + obj.key);
+          }, tmpTimeout);
+        }
+        var pubListenCount = await pub.publish(prefix + channel, prefix + '_mono:' + obj.key);
+        if(typeof cb === 'function')
+          cb(pubListenCount);
+        return cb;
       },
+      withReply(timeout){
+        return new Promise(resolve => {
+          resthis.replyAt(resolve, timeout).send();
+        });
+      }
     };
   };
 
-  // sending messages to everone listening
+  // sending messages to any/all matching listeners
   this.poly = function (channel, data) {
     if (config.debug)
       console.log('Snub.poly => ', prefix + channel);
@@ -185,7 +184,7 @@ module.exports = function (config) {
       reply: false
     };
     return {
-      replyAt: function (replyMethod, timeout) {
+      replyAt(replyMethod, timeout) {
         tmpTimeout = timeout || config.timeout;
         obj.reply = (typeof replyMethod == 'function' ? true : false);
         if (!obj.reply) return this;
@@ -195,12 +194,17 @@ module.exports = function (config) {
         }, tmpTimeout);
         return this;
       },
-      send: function (cb) {
-        cb = (typeof cb == 'function' ? cb : function () {});
-        pub.publish(prefix + channel, JSON.stringify(obj), (err, count) => {
-          cb((err || count < 1 ? 0 : count));
-        });
+      async send(cb) {
+        var pubListenCount = await pub.publish(prefix + channel, JSON.stringify(obj));
+        if(typeof cb === 'function')
+          cb(pubListenCount);
+        return cb;
       },
+      withReply(timeout){
+        return new Promise(resolve => {
+          resthis.replyAt(resolve, timeout).send();
+        });
+      }
     };
   };
 

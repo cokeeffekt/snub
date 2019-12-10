@@ -1,6 +1,6 @@
 {
   "name": "snub",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "pub/sub",
   "main": "snub.js",
   "scripts": {
@@ -22,6 +22,6 @@
   },
   "homepage": "https://github.com/cokeeffekt/snub#readme",
   "dependencies": {
-    "ioredis": "^2.5.0"
+    "ioredis": "^4.14.1"
   }
 }
