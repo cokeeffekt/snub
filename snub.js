@@ -153,7 +153,7 @@ module.exports = function (config) {
             this.replies++;
             if (config.debug)
               console.log('Snub.mono reply => ', prefix + channel, (Date.now() - this.ts) + 'ms');
-            if (typeof replyData === 'object')
+            if (typeof replyData === 'object' && replyData !== null)
               Object.defineProperty(replyData, 'responseTime', { value: (Date.now() - this.ts) });
             this.replyMethod(replyData);
           }, true);
@@ -211,7 +211,7 @@ module.exports = function (config) {
             var [replyData, _registeredEvent] = rawReply;
             if (config.debug)
               console.log('Snub.poly reply => ', prefix + channel, (Date.now() - this.ts) + 'ms');
-            if (typeof replyData === 'object')
+            if (typeof replyData === 'object' && replyData !== null)
               Object.defineProperty(replyData, 'responseTime', { value: (Date.now() - this.ts) });
             this.replyMethod(replyData);
           });
