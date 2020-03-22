@@ -6,7 +6,7 @@ module.exports = function (config) {
     debug: false,
     monoWait: 50,
     timeout: 5000,
-    stats: _ => {}
+    stats: _ => {},
   }, config || {});
   if (!config.auth)
     delete config.auth;
@@ -16,18 +16,32 @@ module.exports = function (config) {
   var snubSelf = this;
   var prefix = config.prefix.replace(/:/igm, '') + ':';
   const Redis = require('ioredis');
+
+  // redis connection for each concern
   const redis = new Redis(config);
   const pub = new Redis(config);
+  const sub = new Redis(config);
   var eventsRegistered = [];
 
-  this.redis = pub;
+  this.redis = redis;
+
+  Object.defineProperty(this, 'status', {
+    get () {
+      return {
+        listeners: eventsRegistered.length,
+        redis: redis.status,
+        redisPub: pub.status,
+        redisSub: sub.status
+      };
+    }
+  });
 
   function stat (obj) {
     if (!obj.pattern.startsWith(prefix))
       config.stats(obj);
   };
 
-  redis.on('pmessage', (pattern, channel, message) => {
+  sub.on('pmessage', (pattern, channel, message) => {
     pattern = pattern.replace(prefix, '');
 
     var e = eventsRegistered
