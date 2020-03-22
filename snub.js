@@ -113,7 +113,7 @@ module.exports = function (config) {
 
     eventsRegistered.push(ev);
     try {
-      await redis.psubscribe(prefix + pattern);
+      await sub.psubscribe(prefix + pattern);
     } catch (error) {
       console.log('Snub Error => ' + error);
       var evIndex = eventsRegistered.findIndex(e => e === ev);
@@ -130,7 +130,7 @@ module.exports = function (config) {
       .map(v => eventsRegistered.findIndex(f => f === v))
       .reverse().forEach(i => eventsRegistered.splice(i, 1));
     if (!eventsRegistered.find(e => e.pattern === pattern))
-      await redis.punsubscribe(prefix + pattern);
+      await sub.punsubscribe(prefix + pattern);
   };
 
   // send to one listener
