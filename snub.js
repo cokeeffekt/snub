@@ -7,6 +7,7 @@ module.exports = function (config) {
     monoWait: 50,
     timeout: 5000,
     stats: _ => {},
+    redisStore: null
   }, config || {});
   if (!config.auth)
     delete config.auth;
@@ -18,7 +19,7 @@ module.exports = function (config) {
   const Redis = require('ioredis');
 
   // redis connection for each concern
-  const redis = new Redis(config);
+  const redis = new Redis(config.redisStore || config);
   const pub = new Redis(config);
   const sub = new Redis(config);
   var eventsRegistered = [];
