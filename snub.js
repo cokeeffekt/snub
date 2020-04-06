@@ -1,3 +1,9 @@
+var path = require('path');
+var filename = 'Unknown';
+try {
+  filename = path.basename(process.mainModule.filename);
+} catch (_e) {}
+
 module.exports = function (config) {
   config = Object.assign({
     prefix: 'snub',
@@ -14,26 +20,51 @@ module.exports = function (config) {
 
   // config.debug = true;
 
-  var snubSelf = this;
+  var $ = this;
   var prefix = config.prefix.replace(/:/igm, '') + ':';
   const Redis = require('ioredis');
 
   // redis connection for each concern
-  const redis = new Redis(config.redisStore || config);
-  const pub = new Redis(config);
-  const sub = new Redis(config);
+  var redis;// = new Redis(config.redisStore || config);
+  var pub;
+  var sub;
   var eventsRegistered = [];
 
   this.redis = redis;
 
-  Object.defineProperty(this, 'status', {
-    get () {
-      return {
-        listeners: eventsRegistered.length,
-        redis: redis.status,
-        redisPub: pub.status,
-        redisSub: sub.status
-      };
+  Object.defineProperties(this, {
+    status: {
+      get: _ => {
+        return {
+          listeners: eventsRegistered.length,
+          redis: redis ? redis.status : null,
+          redisPub: pub ? pub.status : null,
+          redisSub: sub ? sub.status : null
+        };
+      }
+    },
+    redis: {
+      get: _ => {
+        redis = redis || new Redis(config.redisStore || config);
+        redis.client('SETNAME', 'redis:' + filename);
+        return redis;
+      }
+    },
+    sub: {
+      get: _ => {
+        if (sub) return sub;
+        sub = new Redis(config);
+        sub.client('SETNAME', 'sub:' + filename);
+        sub.on('pmessage', pmessage.bind(this));
+        return sub;
+      }
+    },
+    pub: {
+      get: _ => {
+        pub = pub || new Redis(config);
+        pub.client('SETNAME', 'pub:' + filename);
+        return pub;
+      }
     }
   });
 
@@ -41,63 +72,6 @@ module.exports = function (config) {
     if (!obj.pattern.startsWith(prefix))
       config.stats(obj);
   };
-
-  sub.on('pmessage', (pattern, channel, message) => {
-    pattern = pattern.replace(prefix, '');
-
-    var e = eventsRegistered
-      .filter((e, idx) => {
-        if (e.pattern !== pattern)
-          return false;
-        if (message.includes(prefix + '_mono:') && eventsRegistered.findIndex(i => i.pattern === e.pattern) !== idx)
-          return false;
-        return true;
-      });
-    // if you have multiple listeners on the same instance randomise the order mainly for the sake of it, you know in case...
-    e.sort(() => Math.round(Math.random() * 2) - 1)
-      .forEach(async e => {
-        var data;
-        // mono messages get delivered once.
-        if (message.includes(prefix + '_mono:')) {
-          // wait is in ms, it will give all handlers a fighting chance to grab the message.
-          await justWait(Math.round(Math.random() * config.monoWait));
-          var response = await pub.pipeline([
-            ['get', message],
-            ['del', message]
-          ]).exec();
-          var [getR, delR] = response;
-          if (delR[1] && getR[1])
-            message = getR[1];
-          else
-            return;
-        }
-        try {
-          data = JSON.parse(message);
-        } catch (e) {
-          if (config.debug)
-            console.log('Snub Error => ' + e);
-        }
-
-        if (data.reply) {
-          e.method(data.contents, replyData => {
-            this.poly(prefix + '_monoreply:' + data.key, [replyData, e]).send();
-            stat({
-              pattern: e.pattern,
-              replyTime: Date.now() - data.ts
-            });
-          }, channel, e.pattern);
-        } else {
-          e.method(data.contents, null, channel, e.pattern);
-          stat({
-            pattern: e.pattern,
-            replyTime: 0
-          });
-        }
-
-        if (e.once)
-          this.off(e.pattern + (e.namespace ? '.' + e.namespace : ''));
-      });
-  });
 
   this.on = async (ipattern, method, once) => {
     var [pattern, namespace] = ipattern.split('.');
@@ -114,7 +88,7 @@ module.exports = function (config) {
 
     eventsRegistered.push(ev);
     try {
-      await sub.psubscribe(prefix + pattern);
+      await $.sub.psubscribe(prefix + pattern);
     } catch (error) {
       console.log('Snub Error => ' + error);
       var evIndex = eventsRegistered.findIndex(e => e === ev);
@@ -131,7 +105,7 @@ module.exports = function (config) {
       .map(v => eventsRegistered.findIndex(f => f === v))
       .reverse().forEach(i => eventsRegistered.splice(i, 1));
     if (!eventsRegistered.find(e => e.pattern === pattern))
-      await sub.punsubscribe(prefix + pattern);
+      await $.sub.punsubscribe(prefix + pattern);
   };
 
   // send to one listener
@@ -155,14 +129,14 @@ module.exports = function (config) {
         return this;
       },
       async send (cb) {
-        await pub.set(prefix + '_mono:' + this.key, JSON.stringify({
+        await $.pub.set(prefix + '_mono:' + this.key, JSON.stringify({
           key: this.key,
           contents: this.contents,
           reply: this.reply,
           ts: this.ts
         }), 'EX', Math.ceil((this.timeout + 1000) / 1000));
         if (this.reply) {
-          snubSelf.on(prefix + '_monoreply:' + this.key, rawReply => {
+          $.on(prefix + '_monoreply:' + this.key, rawReply => {
             // eslint-disable-next-line
             var [replyData, _registeredEvent] = rawReply;
             this.replies++;
@@ -173,12 +147,12 @@ module.exports = function (config) {
             this.replyMethod(replyData);
           }, true);
           setTimeout(_ => {
-            snubSelf.off(prefix + '_monoreply:' + this.key);
+            $.off(prefix + '_monoreply:' + this.key);
             if (this.replies < 1)
               this.replyMethod(null, 'Snub Error => Event timeout, no reply');
           }, this.timeout);
         }
-        this.listened = await pub.publish(prefix + channel, prefix + '_mono:' + this.key);
+        this.listened = await $.pub.publish(prefix + channel, prefix + '_mono:' + this.key);
         if (typeof cb === 'function')
           cb(this.listened);
         return this.listened;
@@ -221,7 +195,7 @@ module.exports = function (config) {
       },
       async send (cb) {
         if (this.reply) {
-          snubSelf.on(prefix + '_monoreply:' + this.key, rawReply => {
+          $.on(prefix + '_monoreply:' + this.key, rawReply => {
             // eslint-disable-next-line
             var [replyData, _registeredEvent] = rawReply;
             if (config.debug)
@@ -231,10 +205,10 @@ module.exports = function (config) {
             this.replyMethod(replyData);
           });
           setTimeout(_ => {
-            snubSelf.off(prefix + '_monoreply:' + this.key);
+            $.off(prefix + '_monoreply:' + this.key);
           }, this.timeout);
         }
-        this.listened = await pub.publish(prefix + channel, JSON.stringify({
+        this.listened = await $.pub.publish(prefix + channel, JSON.stringify({
           key: this.key,
           contents: this.contents,
           reply: this.reply,
@@ -252,7 +226,64 @@ module.exports = function (config) {
 
   this.use = function (method) {
     if (typeof method === 'function')
-      method(snubSelf);
+      method($);
+  };
+
+  function pmessage (pattern, channel, message) {
+    pattern = pattern.replace(prefix, '');
+
+    var e = eventsRegistered
+      .filter((e, idx) => {
+        if (e.pattern !== pattern)
+          return false;
+        if (message.includes(prefix + '_mono:') && eventsRegistered.findIndex(i => i.pattern === e.pattern) !== idx)
+          return false;
+        return true;
+      });
+    // if you have multiple listeners on the same instance randomise the order mainly for the sake of it, you know in case...
+    e.sort(() => Math.round(Math.random() * 2) - 1)
+      .forEach(async e => {
+        var data;
+        // mono messages get delivered once.
+        if (message.includes(prefix + '_mono:')) {
+          // wait is in ms, it will give all handlers a fighting chance to grab the message.
+          await justWait(Math.round(Math.random() * config.monoWait));
+          var response = await $.pub.pipeline([
+            ['get', message],
+            ['del', message]
+          ]).exec();
+          var [getR, delR] = response;
+          if (delR[1] && getR[1])
+            message = getR[1];
+          else
+            return;
+        }
+        try {
+          data = JSON.parse(message);
+        } catch (e) {
+          if (config.debug)
+            console.log('Snub Error => ' + e);
+        }
+
+        if (data.reply) {
+          e.method(data.contents, replyData => {
+            this.poly(prefix + '_monoreply:' + data.key, [replyData, e]).send();
+            stat({
+              pattern: e.pattern,
+              replyTime: Date.now() - data.ts
+            });
+          }, channel, e.pattern);
+        } else {
+          e.method(data.contents, null, channel, e.pattern);
+          stat({
+            pattern: e.pattern,
+            replyTime: 0
+          });
+        }
+
+        if (e.once)
+          this.off(e.pattern + (e.namespace ? '.' + e.namespace : ''));
+      });
   };
 };
 
