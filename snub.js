@@ -133,7 +133,8 @@ module.exports = function (config) {
           key: this.key,
           contents: this.contents,
           reply: this.reply,
-          ts: this.ts
+          ts: this.ts,
+          channel: channel
         }), 'EX', Math.ceil((this.timeout + 1000) / 1000));
         if (this.reply) {
           $.on(prefix + '_monoreply:' + this.key, rawReply => {
