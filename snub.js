@@ -58,8 +58,9 @@ module.exports = function (config) {
     sub: {
       get: _ => {
         if (sub) return sub;
-        // if (config.debug)
-        console.log('Snub.Init => ', 'sub:' + filename);
+        if (config.debug)
+          console.log('Snub.Init => ', 'sub:' + filename);
+
         sub = new Redis(config);
         sub.client('SETNAME', 'sub:' + filename);
         sub.on('pmessage', pmessage.bind(this));
@@ -69,8 +70,9 @@ module.exports = function (config) {
     pub: {
       get: _ => {
         if (pub) return pub;
-        // if (config.debug)
-        console.log('Snub.Init => ', 'pub:' + filename);
+        if (config.debug)
+          console.log('Snub.Init => ', 'pub:' + filename);
+
         pub = new Redis(config);
         pub.client('SETNAME', 'pub:' + filename);
         return pub;
