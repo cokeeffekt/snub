@@ -12,6 +12,7 @@ module.exports = function (config) {
     debug: false,
     monoWait: 50,
     timeout: 5000,
+    nsSeparator: '.',
     stats: _ => {},
     redisStore: null
   }, config || {});
@@ -46,8 +47,9 @@ module.exports = function (config) {
     redis: {
       get: _ => {
         if (redis) return redis;
-        // if (config.debug)
-        console.log('Snub.Init => ', 'redis:' + filename);
+        if (config.debug)
+          console.log('Snub.Init => ', 'redis:' + filename);
+
         redis = new Redis(config.redisStore || config);
         redis.client('SETNAME', 'redis:' + filename);
         return redis;
@@ -56,8 +58,9 @@ module.exports = function (config) {
     sub: {
       get: _ => {
         if (sub) return sub;
-        // if (config.debug)
-        console.log('Snub.Init => ', 'sub:' + filename);
+        if (config.debug)
+          console.log('Snub.Init => ', 'sub:' + filename);
+
         sub = new Redis(config);
         sub.client('SETNAME', 'sub:' + filename);
         sub.on('pmessage', pmessage.bind(this));
@@ -67,8 +70,9 @@ module.exports = function (config) {
     pub: {
       get: _ => {
         if (pub) return pub;
-        // if (config.debug)
-        console.log('Snub.Init => ', 'pub:' + filename);
+        if (config.debug)
+          console.log('Snub.Init => ', 'pub:' + filename);
+
         pub = new Redis(config);
         pub.client('SETNAME', 'pub:' + filename);
         return pub;
@@ -82,8 +86,7 @@ module.exports = function (config) {
   };
 
   this.on = async (ipattern, method, once) => {
-    var [pattern, namespace] = ipattern.split('.');
-
+    var [pattern, namespace] = ipattern.split(config.nsSeparator);
     if (config.debug)
       console.log('Snub.on => ', prefix + pattern);
 
