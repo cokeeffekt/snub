@@ -75,6 +75,10 @@ Allows the event to be replied to, since this will get delivered to all listener
 
 Emits an event trigger with the payload .send() accepts and optional callback function which carries a number value which will indicate the amount of listeners that heard the event trigger (will always be 0 or 1 for mono). Mono will only be delivered to a single listener, this is first come first served, there is not methodology or way to control this as of yet, think of it as random delivery.
 
+##### `snub.mono('eventname', payload).sendDelay(5);`
+
+number of seconds to delay the event being sent. this is stores in redis so will persist restarts.
+
 ##### `snub.poly('eventname', payload).replyAt(function(), [optional timeout]).send([function]);`
 
 Allows the event to be replied to, reply can only run once.

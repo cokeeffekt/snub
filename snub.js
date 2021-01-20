@@ -1,3 +1,4 @@
+const { deepStrictEqual } = require('assert');
 var path = require('path');
 var filename = 'Unknown';
 try {
@@ -32,6 +33,14 @@ module.exports = function (config) {
   var eventsRegistered = [];
 
   this.redis = redis;
+  setInterval(async _ => {
+    var values = (await $.pub.mget(await $.pub.keys(prefix + '_monodelay:*'))).map(v => JSON.parse(v));
+    values.forEach(de => {
+      var when = de.ts + (de.seconds * 1000);
+      if (Date.now() < when) return;
+      this.mono(de.channel, de.contents).send();
+    });
+  }, 1000);
 
   Object.defineProperties(this, {
     status: {
@@ -168,6 +177,16 @@ module.exports = function (config) {
         if (typeof cb === 'function')
           cb(this.listened);
         return this.listened;
+      },
+      // linger is how long the event will sit waiting to be picked
+      async sendDelay (seconds, linger = 5) {
+        await $.pub.set(prefix + '_monodelay:' + this.key, JSON.stringify({
+          key: this.key,
+          contents: this.contents,
+          ts: this.ts,
+          channel: channel,
+          seconds: seconds
+        }), 'EX', seconds + linger);
       },
       awaitReply (timeout) {
         return new Promise((resolve, reject) => {
