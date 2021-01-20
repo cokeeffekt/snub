@@ -34,7 +34,9 @@ module.exports = function (config) {
 
   this.redis = redis;
   setInterval(async _ => {
-    var values = (await $.pub.mget(await $.pub.keys(prefix + '_monodelay:*'))).map(v => JSON.parse(v));
+    var keys = await $.pub.keys(prefix + '_monodelay:*');
+    if (!keys || !keys.length) return;
+    var values = (await $.pub.mget(keys)).map(v => JSON.parse(v));
     values.forEach(de => {
       var when = de.ts + (de.seconds * 1000);
       if (Date.now() < when) return;
