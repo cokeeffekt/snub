@@ -192,17 +192,20 @@ test('Publish mono tests', async function () {
   expect(data).toBe(123);
 }, 10000);
 
-test('Publish mono delat test', async function () {
+test('Publish mono delay test', async function () {
   var data = null;
+  var ran = 0;
 
   await snub.mono('test-listener-mono-delay', { data: 456 }).sendDelay(5);
   await snub.on('test-listener-mono-delay', (payload) => {
     data = payload.data;
+    ran++;
   });
-  await justWait(3000);
+  await justWait(4000);
   expect(data).toBe(null);
   await justWait(4000);
   expect(data).toBe(456);
+  expect(ran).toBe(1);
 }, 20000);
 
 function justWait (ms = 1000) {

@@ -14,6 +14,7 @@ module.exports = function (config) {
     monoWait: 50,
     timeout: 5000,
     nsSeparator: '.',
+    delayResolution: 1000,
     stats: _ => {},
     redisStore: null
   }, config || {});
@@ -34,15 +35,26 @@ module.exports = function (config) {
 
   this.redis = redis;
   setInterval(async _ => {
-    var keys = await $.pub.keys(prefix + '_monodelay:*');
-    if (!keys || !keys.length) return;
-    var values = (await $.pub.mget(keys)).map(v => JSON.parse(v));
-    values.forEach(de => {
-      var when = de.ts + (de.seconds * 1000);
-      if (Date.now() < when) return;
-      this.mono(de.channel, de.contents).send();
-    });
-  }, 1000);
+    try {
+      var keys = await $.pub.keys(prefix + '_monodelay:*');
+      if (!keys || !keys.length) return;
+      var values = (await $.pub.mget(keys)).map(v => JSON.parse(v));
+      for (var i in values) {
+        var when = values[i].ts + (values[i].seconds * 1000);
+        if (Date.now() < when) continue;
+        var r = await $.pub.pipeline([
+          ['get', keys[i]], ['del', keys[i]]
+        ]).exec();
+        var [getR] = r;
+        if (getR[0] || !getR[1]) continue;
+        var e = JSON.parse(getR[1]);
+        this.mono(e.channel, e.contents).send();
+      }
+    } catch (error) {
+      if (config.debug)
+        console.error('Snub.delayInternal => ', error);
+    }
+  }, config.delayResolution);
 
   Object.defineProperties(this, {
     status: {
