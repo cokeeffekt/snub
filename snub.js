@@ -1,4 +1,3 @@
-const { deepStrictEqual } = require('assert');
 var path = require('path');
 var filename = 'Unknown';
 try {
