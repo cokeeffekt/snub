@@ -26,7 +26,9 @@ snub.mono('hello', 'world').send();
 For further examples take a look in [examples](/examples).
 
 #### Advanced Setup
+
 Optional config, defaults are applied if omitted.
+
 ```javascript
 const Snub = require('snub');
 const snub = new Snub({
@@ -41,6 +43,10 @@ const snub = new Snub({
       port: 6379, // redis port
       host: '127.0.0.1', // redis host
       auth: null,   // redis auth
+    },
+    intercepter: async (payload, reply, channel, pattern) => {
+      // payload be mutated directly, reply fn can be called early. (if you reply and return true you might have an uninteded outcome)
+      return true; // returning false will not exectute the listener.
     }
   });
 ```
@@ -49,10 +55,10 @@ const snub = new Snub({
 
 ##### `snub.on('eventname', (payload, [reply]) => {});`
 
- - Method is run when an event is triggered.
- - Use patterns in subscribers like so `'h[ae]llo'` or `hell*`
- - Reply is optionaly a function to reply at with a single param. `reply({})`
- - you can also namespace events `hello.one` to allow easy removal with `snub.off('hello.one')`
+- Method is run when an event is triggered.
+- Use patterns in subscribers like so `'h[ae]llo'` or `hell*`
+- Reply is optionaly a function to reply at with a single param. `reply({})`
+- you can also namespace events `hello.one` to allow easy removal with `snub.off('hello.one')`
 
 ##### `snub.once('eventname', (payload, [reply]) => {});`
 
@@ -60,8 +66,8 @@ Same as .on but event will only trigger once.
 
 ##### `snub.off('eventname');`
 
- - Remove all event listeners by name
- - append namespace to remove single listener if you have mutliple.
+- Remove all event listeners by name
+- append namespace to remove single listener if you have mutliple.
 
 ##### `snub.poly('eventname', payload).send([function]);`
 
@@ -88,6 +94,5 @@ Allows the event to be replied to, reply can only run once.
 Snub accepts middleware, it will hand the snub instance to the middleware method.
 
 ##### Some handy middleware
- - [Snub-HTTP](https://github.com/cokeeffekt/snub-http)
 
-
+- [Snub-HTTP](https://github.com/cokeeffekt/snub-http)

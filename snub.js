@@ -17,6 +17,9 @@ module.exports = function (config) {
       delayResolution: 1000,
       stats: (_) => {},
       redisStore: null,
+      intercepter: async (payload, reply, listener, channel) => {
+        return true;
+      },
     },
     config || {}
   );
@@ -341,28 +344,32 @@ module.exports = function (config) {
       }
 
       // console.log('Snub pmessage data => ', pattern, data);
-
+      var replyMethod = null;
       if (data.reply) {
-        e.method(
-          data.contents,
-          (replyData) => {
-            // console.log('Snub pmessage reply data => ', pattern, replyData);
-            this.poly(prefix + '_monoReply:' + data.key, [replyData, e]).send();
-            stat({
-              pattern: e.pattern,
-              replyTime: Date.now() - data.ts,
-            });
-          },
-          channel,
-          e.pattern
-        );
-      } else {
-        e.method(data.contents, null, channel, e.pattern);
+        replyMethod = (replyData) => {
+          // console.log('Snub pmessage reply data => ', pattern, replyData);
+          this.poly(prefix + '_monoReply:' + data.key, [replyData, e]).send();
+          stat({
+            pattern: e.pattern,
+            replyTime: Date.now() - data.ts,
+          });
+        };
+      }
+
+      var intercept = await config.intercepter(
+        data.contents,
+        replyMethod,
+        e.pattern,
+        channel
+      );
+      if (intercept === false) return;
+
+      e.method(data.contents, replyMethod, channel, e.pattern);
+      if (!replyMethod)
         stat({
           pattern: e.pattern,
           replyTime: 0,
         });
-      }
 
       if (e.once) this.off(e.pattern + (e.namespace ? '.' + e.namespace : ''));
     });

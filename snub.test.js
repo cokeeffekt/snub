@@ -4,7 +4,13 @@ var snub = new Snub({
   host: 'localhost',
   password: '',
   db: 8,
-  timeout: 10000
+  timeout: 10000,
+  intercepter: async (payload, reply, listener, channel) => {
+    if (listener === 'test-intercept-block') return false;
+    if (listener === 'test-intercept-mono')
+      payload.intercept = payload.intercept * 2;
+    return true;
+  },
 });
 
 test('Publish mono reply no listeners', async function () {
@@ -25,10 +31,12 @@ test('Publish mono reply timeout', async function () {
   });
 
   var replyAtTimeout = false;
-  snub.mono('test-listener-mono-reply', 'junk').replyAt((v, err) => {
-    if (err)
-      replyAtTimeout = true;
-  }, 100).send();
+  snub
+    .mono('test-listener-mono-reply', 'junk')
+    .replyAt((v, err) => {
+      if (err) replyAtTimeout = true;
+    }, 100)
+    .send();
 
   var awaitReplyTimeout = false;
   try {
@@ -47,23 +55,28 @@ test('Publish mono reply', async function () {
   var random = Math.round(Math.random() * 10);
 
   await snub.on('test-listener-mono-reply', (payload, reply) => {
-    setTimeout(_ => {
+    setTimeout((_) => {
       reply({ data: payload * 5 });
     }, 500);
   });
 
   await snub.on('test-listener-mono-reply', (payload, reply) => {
-    setTimeout(_ => {
+    setTimeout((_) => {
       reply({ data: payload * 5 });
     }, 500);
   });
 
   var checkReplyAt;
-  snub.mono('test-listener-mono-reply', random).replyAt(v => {
-    checkReplyAt = v.data;
-  }).send();
+  snub
+    .mono('test-listener-mono-reply', random)
+    .replyAt((v) => {
+      checkReplyAt = v.data;
+    })
+    .send();
 
-  var checkReplyAwait = await snub.mono('test-listener-mono-reply', random).awaitReply();
+  var checkReplyAwait = await snub
+    .mono('test-listener-mono-reply', random)
+    .awaitReply();
 
   await justWait(1000);
   expect(checkReplyAt).toBe(random * 5);
@@ -75,24 +88,25 @@ test('Publish poly replies', async function () {
   var random = Math.round(Math.random() * 10);
 
   await snub.on('test-listener-poly-reply', (payload, reply) => {
-    setTimeout(_ => {
+    setTimeout((_) => {
       reply({ data: payload * 5 });
     }, 100);
   });
   await snub.on('test-listener-poly-reply', (payload, reply) => {
-    setTimeout(_ => {
+    setTimeout((_) => {
       reply({ data: payload * 5 });
     }, 100);
   });
   await snub.on('test-listener-poly-reply', (payload, reply) => {
-    setTimeout(_ => {
+    setTimeout((_) => {
       reply({ data: payload * 5 });
     }, 100);
   });
 
   var checkReplyAt = 0;
-  snub.poly('test-listener-poly-reply', random)
-    .replyAt(v => {
+  snub
+    .poly('test-listener-poly-reply', random)
+    .replyAt((v) => {
       checkReplyAt = checkReplyAt + v.data;
     }, 1000)
     .send();
@@ -192,6 +206,38 @@ test('Publish mono tests', async function () {
   expect(data).toBe(123);
 }, 10000);
 
+test('Intercept mono tests', async function () {
+  var countMonos = 0;
+  var data;
+
+  // set up 4 listeners
+  await snub.on('test-intercept-mono', (payload) => {
+    data = payload.intercept;
+    countMonos++;
+  });
+
+  await snub.mono('test-intercept-mono', { intercept: 123 }).send();
+
+  await justWait(250);
+  expect(countMonos).toBe(1);
+  expect(data).toBe(246);
+}, 10000);
+
+test('Intercept block tests', async function () {
+  var countMonos = 0;
+  var data;
+
+  // set up 4 listeners
+  await snub.on('test-intercept-block', (payload) => {
+    countMonos++;
+  });
+
+  await snub.mono('test-intercept-block', { intercept: 0 }).send();
+
+  await justWait(250);
+  expect(countMonos).toBe(0);
+}, 10000);
+
 test('Publish mono delay test', async function () {
   var data = null;
   var ran = 0;
@@ -208,8 +254,8 @@ test('Publish mono delay test', async function () {
   expect(ran).toBe(1);
 }, 20000);
 
-function justWait (ms = 1000) {
-  return new Promise(resolve => {
+function justWait(ms = 1000) {
+  return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
 }
