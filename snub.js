@@ -200,7 +200,12 @@ module.exports = function (config) {
           setTimeout((_) => {
             $.off(prefix + '_monoReply:' + this.key);
             if (this.replies < 1)
-              this.replyMethod(null, 'Snub Error => Event timeout, no reply');
+              this.replyMethod(
+                null,
+                'Snub Error => Event timeout, no reply from : ' +
+                  prefix +
+                  channel
+              );
           }, this.timeout);
         }
         this.listened = await $.pub.publish(
