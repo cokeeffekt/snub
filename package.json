@@ -4,7 +4,8 @@
   "description": "pub/sub",
   "main": "snub.js",
   "scripts": {
-    "test": "jest --runInBand --forceExit --detectOpenHandles"
+    "test": "jest --runInBand --forceExit --detectOpenHandles",
+    "redis": "docker run --rm --name redis-snub -d -p 6379:6379 redis:4.0-alpine"
   },
   "repository": {
     "type": "git",

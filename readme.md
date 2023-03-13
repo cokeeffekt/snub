@@ -6,6 +6,12 @@ Pub Sub message system, supports middleware, single delivery, replys and cluster
 
 `npm install snub`
 
+#### Tests
+
+Tests are few but cover the essentials, feel free to add to them. Redis needs to be running no auth on default port.
+`npm run redis` - basic redis docker
+`npm run test`
+
 #### Basic Example
 
 With redis installed and running with default port and no auth.
@@ -19,7 +25,7 @@ snub.on('hello', (payload) => {
   console.log('Recieved => ', payload);
 });
 
-// send 'hello' to single listener.
+// send 'world' to single 'hello' listener.
 snub.mono('hello', 'world').send();
 ```
 
@@ -96,3 +102,6 @@ Snub accepts middleware, it will hand the snub instance to the middleware method
 ##### Some handy middleware
 
 - [Snub-HTTP](https://github.com/cokeeffekt/snub-http)
+- [Snub-WS](https://github.com/cokeeffekt/snub-ws)
+- [Snub-CRON](https://github.com/cokeeffekt/snub-cron)
+- [snub-STORE](https://github.com/cokeeffekt/snub-store)
