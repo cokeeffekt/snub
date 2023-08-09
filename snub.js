@@ -1,28 +1,23 @@
-var path = require('path');
-var filename = 'Unknown';
-try {
-  filename = path.basename(process.mainModule.filename);
-} catch (_e) {}
+const path = require('path');
+const Redis = require('ioredis');
 
-module.exports = function (config) {
-  config = Object.assign(
-    {
-      prefix: 'snub',
-      port: 6379,
-      host: '127.0.0.1',
-      debug: false,
-      monoWait: 50,
-      timeout: 5000,
-      nsSeparator: '.',
-      delayResolution: 1000,
-      stats: (_) => {},
-      redisStore: null,
-      intercepter: async (payload, reply, listener, channel) => {
-        return true;
-      },
+module.exports = function Snub(config = {}) {
+  const filename = path.basename(__filename);
+  config = {
+    prefix: 'snub',
+    debug: false,
+    monoWait: 50,
+    timeout: 5000,
+    nsSeparator: '.',
+    delayResolution: 1000,
+    stats: (_) => {},
+    redisAuth: null,
+    redisStore: null,
+    intercepter: async (payload, reply, listener, channel) => {
+      return true;
     },
-    config || {}
-  );
+    ...config,
+  };
   if (!config.auth) delete config.auth;
 
   // config.debug = true;
@@ -30,7 +25,6 @@ module.exports = function (config) {
 
   var $ = this;
   var prefix = config.prefix.replace(/:/gim, '') + ':';
-  const Redis = require('ioredis');
 
   // redis connection for each concern
   var redis; // = new Redis(config.redisStore || config);
@@ -80,7 +74,7 @@ module.exports = function (config) {
         if (redis) return redis;
         if (config.debug) console.log('Snub.Init => ', 'redis:' + filename);
 
-        redis = new Redis(config.redisStore || config);
+        redis = new Redis(config.redisStore || config.redisAuth || config);
         redis.client('SETNAME', 'redis:' + filename);
         return redis;
       },
@@ -90,7 +84,7 @@ module.exports = function (config) {
         if (sub) return sub;
         if (config.debug) console.log('Snub.Init => ', 'sub:' + filename);
 
-        sub = new Redis(config);
+        sub = new Redis(config.redisAuth || config);
         sub.client('SETNAME', 'sub:' + filename);
         sub.on('pmessage', pmessage.bind(this));
         return sub;
@@ -307,9 +301,6 @@ module.exports = function (config) {
   };
 
   function pmessage(pattern, channel, message) {
-    // if (config.debug)
-    //   console.log('Snub pmessage => ', pattern);
-
     pattern = pattern.replace(prefix, '');
 
     var e = eventsRegistered.filter((e, idx) => {

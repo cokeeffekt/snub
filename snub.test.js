@@ -1,9 +1,20 @@
 const Snub = require('snub');
 
 var snub = new Snub({
-  host: 'localhost',
-  password: '',
-  db: 8,
+  // debug: true,
+  // host: 'localhost',
+  // password: '',
+  // db: 8,
+
+  // redisAuth: 'redis://:@localhost:6379/8',
+  redisAuth: {
+    // see https://github.com/redis/ioredis#connect-to-redis for more information
+    port: 6379, // Redis port
+    host: 'localhost', // Redis host
+    username: '', // needs Redis >= 6
+    password: '',
+    db: 8, // Defaults to 0
+  },
   timeout: 10000,
   intercepter: async (payload, reply, listener, channel) => {
     if (listener === 'test-intercept-block') return false;
@@ -50,6 +61,31 @@ test('Publish mono reply timeout', async function () {
   expect(awaitReplyTimeout).toBe(true);
   // expect(checkReplyAwait).toBe(random * 5);
 }, 10000);
+
+test('Pattern Test', async function () {
+  var random = Math.round(Math.random() * 10);
+  await snub.on('test-listener-mono-pattern-wild*', (payload, reply) => {
+    setTimeout((_) => {
+      reply({ data: payload * 5 });
+    }, 500);
+  });
+  await snub.on('test-listener-mono-pattern-m[ae]h', (payload, reply) => {
+    setTimeout((_) => {
+      reply({ data: payload * 5 });
+    }, 500);
+  });
+
+  var checkReplyAwait1 = await snub
+    .mono('test-listener-mono-pattern-wildcard', random)
+    .awaitReply();
+  var checkReplyAwait2 = await snub
+    .mono('test-listener-mono-pattern-meh', random)
+    .awaitReply();
+
+  await justWait(1000);
+  expect(checkReplyAwait1.data).toBe(random * 5);
+  expect(checkReplyAwait2.data).toBe(random * 5);
+});
 
 test('Publish mono reply', async function () {
   var random = Math.round(Math.random() * 10);
