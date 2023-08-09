@@ -95,7 +95,7 @@ module.exports = function Snub(config = {}) {
         if (pub) return pub;
         if (config.debug) console.log('Snub.Init => ', 'pub:' + filename);
 
-        pub = new Redis(config);
+        pub = new Redis(config.redisAuth || config);
         pub.client('SETNAME', 'pub:' + filename);
         return pub;
       },
