@@ -31,7 +31,7 @@ test('Publish mono reply no listeners', async function () {
   } catch (error) {
     awaitReplyNoList = true;
   }
-  await justWait(250);
+  await justWait(150);
   expect(awaitReplyNoList).toBe(true);
   // expect(checkReplyAwait).toBe(random * 5);
 }, 10000);
@@ -56,7 +56,7 @@ test('Publish mono reply timeout', async function () {
     awaitReplyTimeout = true;
   }
 
-  await justWait(250);
+  await justWait(150);
   expect(replyAtTimeout).toBe(true);
   expect(awaitReplyTimeout).toBe(true);
   // expect(checkReplyAwait).toBe(random * 5);
@@ -82,7 +82,7 @@ test('Pattern Test', async function () {
     .mono('test-listener-mono-pattern-meh', random)
     .awaitReply();
 
-  await justWait(1000);
+  await justWait(250);
   expect(checkReplyAwait1.data).toBe(random * 5);
   expect(checkReplyAwait2.data).toBe(random * 5);
 });
@@ -93,13 +93,13 @@ test('Publish mono reply', async function () {
   await snub.on('test-listener-mono-reply', (payload, reply) => {
     setTimeout((_) => {
       reply({ data: payload * 5 });
-    }, 500);
+    }, 250);
   });
 
   await snub.on('test-listener-mono-reply', (payload, reply) => {
     setTimeout((_) => {
       reply({ data: payload * 5 });
-    }, 500);
+    }, 250);
   });
 
   var checkReplyAt;
@@ -114,10 +114,10 @@ test('Publish mono reply', async function () {
     .mono('test-listener-mono-reply', random)
     .awaitReply();
 
-  await justWait(1000);
+  await justWait(500);
   expect(checkReplyAt).toBe(random * 5);
   expect(checkReplyAwait.data).toBe(random * 5);
-  expect(checkReplyAwait.responseTime).toBeGreaterThan(500);
+  expect(checkReplyAwait.responseTime).toBeGreaterThan(250);
 }, 10000);
 
 test('Publish poly replies', async function () {
@@ -144,10 +144,19 @@ test('Publish poly replies', async function () {
     .poly('test-listener-poly-reply', random)
     .replyAt((v) => {
       checkReplyAt = checkReplyAt + v.data;
-    }, 1000)
+    }, 500)
     .send();
 
-  await justWait(2000);
+  var checkReplyAwait = await snub
+    .poly('test-listener-poly-reply', random)
+    .awaitReply(1000);
+
+  var checkReplyAwaitValue = checkReplyAwait.reduce((total, current) => {
+    return total + current.data;
+  }, 0);
+
+  await justWait(1000);
+  expect(checkReplyAwaitValue).toBe(random * 5 * 3);
   expect(checkReplyAt).toBe(random * 5 * 3);
 }, 10000);
 
@@ -237,7 +246,43 @@ test('Publish mono tests', async function () {
   await snub.mono('test-listener-mono', { data: 123 }).send();
   await snub.mono('test-listener-mono', { data: 123 }).send();
 
-  await justWait(250);
+  await justWait(50);
+  expect(countMonos).toBe(2);
+  expect(data).toBe(123);
+
+  await snub.off('test-listener-mono');
+  expect(countMonos).toBe(2);
+  await snub.mono('test-listener-mono', { data: 456 }).send();
+  expect(countMonos).toBe(2);
+  expect(data).toBe(123);
+}, 10000);
+
+test('Publish mono tests - name spaced', async function () {
+  var countMonos = 0;
+  var data;
+
+  // set up 4 listeners
+  await snub.on('test-listener1-mono.name1', (payload) => {
+    data = payload.data;
+    countMonos++;
+  });
+  await snub.on('test-listener1-mono.name2', (payload) => {
+    data = payload.data;
+    countMonos++;
+  });
+  await snub.on('test-listener1-mono.name3', (payload) => {
+    data = payload.data;
+    countMonos++;
+  });
+  await snub.on('test-listener1-mono.name4', (payload) => {
+    data = payload.data;
+    countMonos++;
+  });
+
+  await snub.mono('test-listener1-mono', { data: 123 }).send();
+  await snub.mono('test-listener1-mono', { data: 123 }).send();
+
+  await justWait(100);
   expect(countMonos).toBe(2);
   expect(data).toBe(123);
 }, 10000);
@@ -254,7 +299,7 @@ test('Intercept mono tests', async function () {
 
   await snub.mono('test-intercept-mono', { intercept: 123 }).send();
 
-  await justWait(250);
+  await justWait(100);
   expect(countMonos).toBe(1);
   expect(data).toBe(246);
 }, 10000);
@@ -278,17 +323,35 @@ test('Publish mono delay test', async function () {
   var data = null;
   var ran = 0;
 
-  await snub.mono('test-listener-mono-delay', { data: 456 }).sendDelay(5);
+  await snub.mono('test-listener-mono-delay', { data: 456 }).sendDelay(2);
   await snub.on('test-listener-mono-delay', (payload) => {
     data = payload.data;
     ran++;
   });
-  await justWait(4000);
+  await justWait(1000);
   expect(data).toBe(null);
-  await justWait(4000);
+  await justWait(3000);
   expect(data).toBe(456);
   expect(ran).toBe(1);
-}, 20000);
+}, 10000);
+
+test('Leak test', async function () {
+  var listenCount = snub.status.listeners;
+  var listenCountNew = listenCount;
+
+  // run an sync functio 10 times
+  for (let i = 0; i < 10; i++) {
+    await snub.on('leak-' + i, () => {});
+    listenCountNew++;
+  }
+  await justWait(100);
+  for (let i = 0; i < 5; i++) {
+    await snub.off('leak-' + i, () => {});
+    listenCountNew--;
+  }
+
+  expect(snub.status.listeners).toBe(listenCountNew);
+}, 10000);
 
 function justWait(ms = 1000) {
   return new Promise((resolve) => {

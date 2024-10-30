@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../snub-http"
+		},
+		{
+			"path": "../snub-ws"
+		},
+		{
+			"path": "../snub-ws-client"
+		}
+	],
+	"settings": {}
+}

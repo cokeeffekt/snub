@@ -4,7 +4,7 @@
   "description": "pub/sub",
   "main": "snub.js",
   "scripts": {
-    "test": "jest --runInBand --forceExit --detectOpenHandles --silent=false",
+    "test": "jest --runInBand --forceExit --silent=false",
     "redis": "docker run --rm --name redis-snub -d -p 6379:6379 redis:4.0-alpine"
   },
   "repository": {
@@ -27,6 +27,6 @@
   },
   "devDependencies": {
     "prettier": "^2.3.1",
-    "jest": "^24.9.0"
+    "jest": "^29.7.0"
   }
 }
