@@ -17,6 +17,7 @@ const DEFAULT_CONFIG = {
 };
 
 class Snub {
+  #subcribedPatterns = new Set();
   #eventsMap = new Map();
   #config;
   #prefix;
@@ -73,9 +74,10 @@ class Snub {
   get status() {
     return {
       listeners: this.eventListenerCount,
+      patterns: this.#subcribedPatterns.size,
       redisPub: this.#pub.status,
       redisSub: this.#sub.status,
-      redisStore: this.#redis.status
+      redis: this.#redis.status,
     };
   }
 
@@ -154,6 +156,7 @@ class Snub {
     this.#eventsMap.set(pattern, eventList);
     try {
       await this.#sub.psubscribe(this.#prefix + pattern);
+      this.#subcribedPatterns.add(this.#prefix + pattern);
     } catch (error) {
       console.log('Snub Error => ' + error);
       this.#remove(eventObject);
@@ -183,9 +186,9 @@ class Snub {
     }
     eventList = this.#eventsMap.get(pattern) || [];
     if (!eventList.length) {
-      this.#subcribedPatterns.delete(this.#prefix + pattern);
       try {
         await this.#sub.punsubscribe(this.#prefix + pattern);
+        this.#subcribedPatterns.delete(this.#prefix + pattern);
       } catch (error) {
         console.log('Snub Error => ' + error);
       }
@@ -367,7 +370,7 @@ class Snub {
       }
 
       // console.log('Snub pmessage data => ', pattern, data);
-      let replyMethod = _=>{};
+      let replyMethod = (_) => {};
       if (data.reply) {
         replyMethod = (replyData) => {
           // console.log('Snub pmessage reply data => ', pattern, replyData);
