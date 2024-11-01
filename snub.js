@@ -114,7 +114,7 @@ class Snub {
   }
 
   async on(iPattern, method) {
-    this.#add(iPattern, method, once);
+    this.#add(iPattern, method, false);
   }
 
   async once(iPattern, method) {

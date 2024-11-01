@@ -60,7 +60,7 @@ snub.on('test-listener-mono-reply', (payload, reply) => {
 
 (async () => {
   try {
-    const response = await snub.mono('test-listener-mono-reply', { value: 10 }).send().awaitReply();
+    const response = await snub.mono('test-listener-mono-reply', { value: 10 }).awaitReply().send();
     console.log('Received reply:', response);
   } catch (error) {
     console.log('Request timed out:', error);
@@ -78,7 +78,7 @@ snub.on('test-listener-poly-reply', (payload, reply) => {
 });
 
 (async () => {
-  const responses = await snub.poly('test-listener-poly-reply', { value: 5 }).send().awaitReply();
+  const responses = await snub.poly('test-listener-poly-reply', { value: 5 }).awaitReply().send();
   console.log('Received responses:', responses);
 })();
 ```
@@ -91,7 +91,7 @@ snub.on('test-listener-mono-pattern-wild*', (payload, reply) => {
 });
 
 (async () => {
-  const response = await snub.mono('test-listener-mono-pattern-wildcard', { value: 4 }).send().awaitReply();
+  const response = await snub.mono('test-listener-mono-pattern-wildcard', { value: 4 }).awaitReply().send();
   console.log('Pattern listener response:', response);
 })();
 ```
@@ -101,7 +101,7 @@ snub.on('test-listener-mono-pattern-wild*', (payload, reply) => {
 ```js
 (async () => {
   try {
-    await snub.mono('test-listener-mono-no-reply', { value: 'junk' }).send().awaitReply();
+    await snub.mono('test-listener-mono-no-reply', { value: 'junk' }).awaitReply().send();
   } catch (error) {
     console.log('Request timed out:', error);
   }
@@ -140,7 +140,7 @@ snub.on('test-listener-mono-delay', (payload, reply) => {
 
 (async () => {
   try {
-    await snub.mono('test-listener-mono-delay', { value: 7 }).sendDelay(5).awaitReply();
+    await snub.mono('test-listener-mono-delay', { value: 7 }).awaitReply().sendDelay(5);
     console.log('Message sent with a delay of 5 seconds');
   } catch (error) {
     console.log('Request timed out:', error);
