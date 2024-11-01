@@ -11,7 +11,7 @@ const DEFAULT_CONFIG = {
   stats: (_) => {},
   redisAuth: null,
   redisStore: null,
-  intercepter: async (payload, reply, listener, eventName) => {
+  interceptor: async (payload, reply, listener, eventName) => {
     return true; // return false to block the event
   },
 };
@@ -113,8 +113,12 @@ class Snub {
     if (typeof method === 'function') method(this);
   }
 
-  async on(iPattern, method, once) {
+  async on(iPattern, method) {
     this.#add(iPattern, method, once);
+  }
+
+  async once(iPattern, method) {
+    this.#add(iPattern, method, true);
   }
 
   async off(iPattern) {
@@ -390,7 +394,7 @@ class Snub {
         };
       }
 
-      const intercept = await this.#config.intercepter(
+      const intercept = await this.#config.interceptor(
         data.contents,
         replyMethod,
         event.pattern,

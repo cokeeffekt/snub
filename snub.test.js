@@ -16,7 +16,7 @@ var snub = new Snub({
     db: 8, // Defaults to 0
   },
   timeout: 10000,
-  intercepter: async (payload, reply, listener, channel) => {
+  interceptor: async (payload, reply, listener, channel) => {
     if (listener === 'test-intercept-block') return false;
     if (listener === 'test-intercept-mono')
       payload.intercept = payload.intercept * 2;
