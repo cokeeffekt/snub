@@ -245,6 +245,18 @@ class Snub {
       // handle reply
       if (emitObj.reply) {
         const replyEventName = this.#prefix + '_monoReply:' + emitObj.key;
+
+        let replyTimout = setTimeout((_) => {
+          this.off(replyEventName);
+          if (type === 'mono' && emitObj.replies < 1)
+            emitObj.replyMethod(
+              null,
+              'Snub Error => Event timeout, no reply from : ' +
+                this.#prefix +
+                eventName
+            );
+        }, emitObj.timeout);
+
         this.on(replyEventName, (rawReply) => {
           const [replyData, _registeredEvent] = rawReply;
           emitObj.replies++;
@@ -259,18 +271,11 @@ class Snub {
               value: Date.now() - emitObj.ts,
             });
           emitObj.replyMethod(replyData);
+          if (type === 'mono') {
+            emitObj.replyMethod = (_) => {};
+            clearTimeout(replyTimout);
+          }
         });
-
-        setTimeout((_) => {
-          this.off(replyEventName);
-          if (type === 'mono' && emitObj.replies < 1)
-            emitObj.replyMethod(
-              null,
-              'Snub Error => Event timeout, no reply from : ' +
-                this.#prefix +
-                eventName
-            );
-        }, emitObj.timeout);
       }
 
       emitObj.listened = await this.#pub.publish(

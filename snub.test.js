@@ -93,6 +93,9 @@ test('Publish mono reply', async function () {
   await snub.on('test-listener-mono-reply', (payload, reply) => {
     setTimeout((_) => {
       reply({ data: payload * 5 });
+      // these should be ignored
+      reply({ data: payload * 5 });
+      reply({ data: payload * 5 });
     }, 250);
   });
 
@@ -102,11 +105,13 @@ test('Publish mono reply', async function () {
     }, 250);
   });
 
+  var replyCount = 0;
   var checkReplyAt;
   snub
     .mono('test-listener-mono-reply', random)
     .replyAt((v) => {
       checkReplyAt = v.data;
+      replyCount++;
     })
     .send();
 
@@ -115,6 +120,7 @@ test('Publish mono reply', async function () {
     .awaitReply();
 
   await justWait(500);
+  expect(replyCount).toBe(1);
   expect(checkReplyAt).toBe(random * 5);
   expect(checkReplyAwait.data).toBe(random * 5);
   expect(checkReplyAwait.responseTime).toBeGreaterThan(250);
