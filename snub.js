@@ -65,7 +65,7 @@ class Snub {
           .exec();
         if (!event[0][1]) return;
         let payload = event[0][1];
-        payload = JSON.parse(payload);
+        payload = parseJson(payload);
         this.mono(payload.eventName, payload.contents).send();
       });
     }, this.#config.delayResolution);
@@ -106,6 +106,12 @@ class Snub {
   }
   get generateUID() {
     return generateUID;
+  }
+  get parseJson() {
+    return parseJson;
+  }
+  get stringifyJson() {
+    return stringifyJson;
   }
 
   // exposed functions
@@ -336,7 +342,7 @@ class Snub {
     }
 
     function serializePayload(extra = {}) {
-      return JSON.stringify({
+      return stringifyJson({
         key: emitObj.key,
         contents: emitObj.contents,
         reply: emitObj.reply,
@@ -373,7 +379,7 @@ class Snub {
         else return;
       }
       try {
-        data = JSON.parse(message);
+        data = parseJson(message);
       } catch (event) {
         if (this.#config.debug) console.log('Snub Error => ' + event);
       }
@@ -429,6 +435,34 @@ function generateUID() {
   firstPart = ('000' + firstPart.toString(36)).slice(-3);
   secondPart = ('000' + secondPart.toString(36)).slice(-3);
   return firstPart + secondPart;
+}
+
+function stringifyJson(obj) {
+  return JSON.stringify(obj, (key, value) => {
+    if (value instanceof Map) {
+      return {
+        dataType: 'Map',
+        value: Array.from(value.entries()), // Convert Map to array of key-value pairs
+      };
+    } else if (value instanceof Set) {
+      return {
+        dataType: 'Set',
+        value: Array.from(value), // Convert Set to array
+      };
+    }
+    return value;
+  });
+}
+
+function parseJson(json) {
+  return JSON.parse(json, (key, value) => {
+    if (value && value.dataType === 'Map') {
+      return new Map(value.value); // Convert array of key-value pairs back to Map
+    } else if (value && value.dataType === 'Set') {
+      return new Set(value.value); // Convert array back to Set
+    }
+    return value;
+  });
 }
 
 module.exports = Snub;
