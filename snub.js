@@ -42,11 +42,24 @@ class Snub {
     // keeping concerns separate with different redis connections
     this.#redis = new Redis(config.redisStore || config.redisAuth || config);
     this.#redis.client('SETNAME', 'redis:' + filename);
+    
+    this.#redis.on('error', err => {
+      console.error('Redis error:', err, config);
+    });
+
     this.#pub = new Redis(config.redisAuth || config);
     this.#pub.client('SETNAME', 'pub:' + filename);
+
+    this.#pub.on('error', err => {
+      console.error('Redis Pub error:', err, config);
+    });
+
     this.#sub = new Redis(config.redisAuth || config);
     this.#sub.client('SETNAME', 'sub:' + filename);
     this.#sub.on('pmessage', this.#pmessage.bind(this));
+    this.#sub.on('error', err => {
+      console.error('Redis Sub error:', err, config);
+    });
 
     // message delay interval
     setInterval(async (_) => {
