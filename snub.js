@@ -42,22 +42,22 @@ class Snub {
     // keeping concerns separate with different redis connections
     this.#redis = new Redis(config.redisStore || config.redisAuth || config);
     this.#redis.client('SETNAME', 'redis:' + filename);
-    
-    this.#redis.on('error', err => {
+
+    this.#redis.on('error', (err) => {
       console.error('Redis error:', err, config);
     });
 
     this.#pub = new Redis(config.redisAuth || config);
     this.#pub.client('SETNAME', 'pub:' + filename);
 
-    this.#pub.on('error', err => {
+    this.#pub.on('error', (err) => {
       console.error('Redis Pub error:', err, config);
     });
 
     this.#sub = new Redis(config.redisAuth || config);
     this.#sub.client('SETNAME', 'sub:' + filename);
     this.#sub.on('pmessage', this.#pmessage.bind(this));
-    this.#sub.on('error', err => {
+    this.#sub.on('error', (err) => {
       console.error('Redis Sub error:', err, config);
     });
 
@@ -91,6 +91,8 @@ class Snub {
       redisPub: this.#pub.status,
       redisSub: this.#sub.status,
       redis: this.#redis.status,
+      // subPatternKeys: this.#subcribedPatterns.keys(),
+      // eventMapKeys: this.#eventsMap.keys(),
     };
   }
 
@@ -271,14 +273,19 @@ class Snub {
 
         let replyTimout = setTimeout((_) => {
           this.off(replyEventName);
-          if (type === 'mono' && emitObj.replies < 1)
+          if (type === 'mono' && emitObj.replies < 1) {
             emitObj.replyMethod(
               null,
               'Snub Error => Event timeout, no reply from : ' +
                 this.#prefix +
                 eventName
             );
+          }
         }, emitObj.timeout);
+
+        setTimeout((_) => {
+          this.off(replyEventName);
+        }, emitObj.timeout + 1000);
 
         this.on(replyEventName, (rawReply) => {
           const [replyData, _registeredEvent] = rawReply;
