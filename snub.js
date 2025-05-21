@@ -1,148 +1,235 @@
 const path = require('path');
 const Redis = require('ioredis');
 
-module.exports = function Snub(config = {}) {
-  const filename = path.basename(__filename);
-  config = {
-    prefix: 'snub',
-    debug: false,
-    monoWait: 50,
-    timeout: 5000,
-    nsSeparator: '.',
-    delayResolution: 1000,
-    stats: (_) => {},
-    redisAuth: null,
-    redisStore: null,
-    intercepter: async (payload, reply, listener, channel) => {
-      return true;
-    },
-    ...config,
-  };
-  if (!config.auth) delete config.auth;
+const DEFAULT_CONFIG = {
+  prefix: 'snub',
+  debug: false,
+  monoWait: 50, // this is a maximum wait time in ms for mono messages to be delivered.
+  timeout: 5000,
+  nsSeparator: '.',
+  delayResolution: 1000, // mono delay resolution in ms
+  stats: (_) => {},
+  redisAuth: null,
+  redisStore: null,
+  interceptor: async (payload, reply, listener, eventName) => {
+    return true; // return false to block the event
+  },
+};
 
-  // config.debug = true;
-  if (config.debug) console.error('Snub Init => ', config);
+class Snub {
+  #subcribedPatterns = new Set();
+  #eventsMap = new Map();
+  #config;
+  #prefix;
 
-  var $ = this;
-  var prefix = config.prefix.replace(/:/gim, '') + ':';
+  #redis;
+  #pub;
+  #sub;
 
-  // redis connection for each concern
-  var redis; // = new Redis(config.redisStore || config);
-  var pub;
-  var sub;
-  var eventsRegistered = [];
+  constructor(config) {
+    this.#config = {
+      ...DEFAULT_CONFIG,
+      ...config,
+    };
+    if (!config.auth) this.#config.auth = undefined;
+    this.#prefix = this.#config.prefix.replace(/:/gim, '') + ':';
 
-  this.redis = redis;
-  if (config.delayResolution !== false)
+    // config.debug = true;
+    if (this.#config.debug) console.info('Snub Init => ', config);
+
+    const filename = path.basename(__filename);
+
+    // keeping concerns separate with different redis connections
+    this.#redis = new Redis(config.redisStore || config.redisAuth || config);
+    this.#redis.client('SETNAME', 'redis:' + filename);
+
+    this.#redis.on('error', (err) => {
+      console.error('Redis error:', err, config);
+    });
+
+    this.#pub = new Redis(config.redisAuth || config);
+    this.#pub.client('SETNAME', 'pub:' + filename);
+
+    this.#pub.on('error', (err) => {
+      console.error('Redis Pub error:', err, config);
+    });
+
+    this.#sub = new Redis(config.redisAuth || config);
+    this.#sub.client('SETNAME', 'sub:' + filename);
+    this.#sub.on('pmessage', this.#pmessage.bind(this));
+    this.#sub.on('error', (err) => {
+      console.error('Redis Sub error:', err, config);
+    });
+
+    // message delay interval
     setInterval(async (_) => {
-      try {
-        var keys = await $.pub.keys(prefix + '_monoDelay:*');
-        if (!keys || !keys.length) return;
-        var values = (await $.pub.mget(keys)).map((v) => JSON.parse(v));
-        for (var i in values) {
-          var when = values[i].ts + values[i].seconds * 1000;
-          if (Date.now() < when) continue;
-          var r = await $.pub
-            .pipeline([
-              ['get', keys[i]],
-              ['del', keys[i]],
-            ])
-            .exec();
-          var [getR] = r;
-          if (getR[0] || !getR[1]) continue;
-          var e = JSON.parse(getR[1]);
-          this.mono(e.channel, e.contents).send();
-        }
-      } catch (error) {
-        if (config.debug) console.error('Snub.delayInternal => ', error);
-      }
-    }, config.delayResolution);
+      const now = Date.now();
+      const keys = await this.#redis.keys(`${this.#prefix}_monoDelay:*`);
 
-  Object.defineProperties(this, {
-    status: {
-      get: (_) => {
-        return {
-          listeners: eventsRegistered.length,
-          redis: redis ? redis.status : null,
-          redisPub: pub ? pub.status : null,
-          redisSub: sub ? sub.status : null,
-        };
-      },
-    },
-    redis: {
-      get: (_) => {
-        if (redis) return redis;
-        if (config.debug) console.log('Snub.Init => ', 'redis:' + filename);
-
-        redis = new Redis(config.redisStore || config.redisAuth || config);
-        redis.client('SETNAME', 'redis:' + filename);
-        return redis;
-      },
-    },
-    sub: {
-      get: (_) => {
-        if (sub) return sub;
-        if (config.debug) console.log('Snub.Init => ', 'sub:' + filename);
-
-        sub = new Redis(config.redisAuth || config);
-        sub.client('SETNAME', 'sub:' + filename);
-        sub.on('pmessage', pmessage.bind(this));
-        return sub;
-      },
-    },
-    pub: {
-      get: (_) => {
-        if (pub) return pub;
-        if (config.debug) console.log('Snub.Init => ', 'pub:' + filename);
-
-        pub = new Redis(config.redisAuth || config);
-        pub.client('SETNAME', 'pub:' + filename);
-        return pub;
-      },
-    },
-  });
-
-  function stat(obj) {
-    if (!obj.pattern.startsWith(prefix)) config.stats(obj);
+      keys.forEach(async (key) => {
+        const [_, __, id, when] = key.split(':');
+        if (now < parseInt(when)) return;
+        if (this.#config.debug) console.log('Snub Delayed event => ', key);
+        const event = await this.#pub
+          .pipeline([
+            ['get', key],
+            ['del', key],
+          ])
+          .exec();
+        if (!event[0][1]) return;
+        let payload = event[0][1];
+        payload = parseJson(payload);
+        this.mono(payload.eventName, payload.contents).send();
+      });
+    }, this.#config.delayResolution);
   }
 
-  this.on = async (iPattern, method, once) => {
-    var [pattern, namespace] = iPattern.split(config.nsSeparator);
-    if (config.debug) console.log('Snub.on => ', prefix + pattern);
+  get status() {
+    return {
+      listeners: this.eventListenerCount,
+      patterns: this.#subcribedPatterns.size,
+      redisPub: this.#pub.status,
+      redisSub: this.#sub.status,
+      redis: this.#redis.status,
+      // subPatternKeys: this.#subcribedPatterns.keys(),
+      // eventMapKeys: this.#eventsMap.keys(),
+    };
+  }
 
-    var ev = {
+  get eventListenerCount() {
+    let totalItemCount = 0;
+    for (let array of this.#eventsMap.values()) {
+      totalItemCount += array.length;
+    }
+    return totalItemCount;
+  }
+
+  // redid connections
+  get redis() {
+    return this.#redis;
+  }
+  get pub() {
+    return this.#pub;
+  }
+  get sub() {
+    return this.#sub;
+  }
+
+  // helper functions
+  static generateUID() {
+    return generateUID;
+  }
+  get generateUID() {
+    return generateUID;
+  }
+  get parseJson() {
+    return parseJson;
+  }
+  get stringifyJson() {
+    return stringifyJson;
+  }
+
+  // exposed functions
+  async use(method) {
+    if (typeof method === 'function') method(this);
+  }
+
+  async on(iPattern, method) {
+    this.#add(iPattern, method, false);
+  }
+
+  async once(iPattern, method) {
+    this.#add(iPattern, method, true);
+  }
+
+  async off(iPattern) {
+    this.#remove(iPattern);
+  }
+
+  mono(channel, data) {
+    return this.#emit('mono', channel, data);
+  }
+
+  poly(channel, data) {
+    return this.#emit('poly', channel, data);
+  }
+
+  // private functions
+  #find(iPattern) {
+    const [pattern, namespace] = iPattern.split('.');
+    let eventList = this.#eventsMap.get(pattern) || [];
+    eventList = eventList.filter(
+      (e) => e.namespace === namespace || !namespace
+    );
+    return eventList;
+  }
+
+  async #add(iPattern, method, once) {
+    const [pattern, namespace] = iPattern.split('.');
+    let eventList = this.#eventsMap.get(pattern);
+    if (!eventList) {
+      eventList = [];
+    }
+    const eventObject = {
       pattern: pattern,
       namespace: namespace,
       method: method,
       once: once,
     };
-
-    eventsRegistered.push(ev);
+    // console.log('EventsRegistry.add => ', pattern, namespace, eventObject);
+    eventList.push(eventObject);
+    this.#eventsMap.set(pattern, eventList);
     try {
-      await $.sub.psubscribe(prefix + pattern);
+      await this.#sub.psubscribe(this.#prefix + pattern);
+      this.#subcribedPatterns.add(this.#prefix + pattern);
     } catch (error) {
       console.log('Snub Error => ' + error);
-      var evIndex = eventsRegistered.findIndex((e) => e === ev);
-      eventsRegistered.splice(evIndex, 1);
+      this.#remove(eventObject);
     }
-  };
+    if (this.#config.debug) console.log('Snub.on => ', this.#prefix + iPattern);
+  }
 
-  this.off = async (iPattern) => {
-    var [pattern, namespace] = iPattern.split('.');
-    if (config.debug) console.log('Snub.off => ', prefix + pattern);
-    eventsRegistered
-      .filter((e) => e.pattern === pattern && e.namespace === namespace)
-      .map((v) => eventsRegistered.findIndex((f) => f === v))
-      .reverse()
-      .forEach((i) => eventsRegistered.splice(i, 1));
-    if (!eventsRegistered.find((e) => e.pattern === pattern))
-      await $.sub.punsubscribe(prefix + pattern);
-  };
+  async #remove(iPattern) {
+    let pattern;
+    let namespace;
+    let eventList;
+    if (typeof iPattern === 'object') {
+      pattern = iPattern.pattern;
+      namespace = iPattern.namespace;
+    } else {
+      [pattern, namespace] = iPattern.split('.');
+    }
+    if (!namespace) this.#eventsMap.delete(pattern);
+    else {
+      eventList = this.#eventsMap.get(pattern) || [];
+      eventList = eventList.filter((e) =>
+        typeof iPattern === 'object'
+          ? e !== iPattern
+          : e.namespace !== namespace
+      );
+      this.#eventsMap.set(pattern, eventList);
+    }
+    eventList = this.#eventsMap.get(pattern) || [];
+    if (!eventList.length) {
+      try {
+        await this.#sub.punsubscribe(this.#prefix + pattern);
+        this.#subcribedPatterns.delete(this.#prefix + pattern);
+      } catch (error) {
+        console.log('Snub Error => ' + error);
+      }
+    }
+    if (this.#config.debug)
+      console.log('Snub.off => ', this.#prefix + iPattern);
+  }
 
-  // send to one listener
-  this.mono = function (channel, data) {
-    if (config.debug) console.log('Snub.mono => ', prefix + channel);
-    return {
+  #stat(obj) {
+    if (!obj.pattern.startsWith(this.#prefix)) this.#config.stats(obj);
+  }
+
+  #emit(type, eventName, data) {
+    if (this.#config.debug)
+      console.log(`Snub.${type} => `, this.#prefix + eventName);
+    const emitObj = {
       key: generateUID(),
       contents: data,
       reply: false,
@@ -150,227 +237,211 @@ module.exports = function Snub(config = {}) {
       replyMethod: null,
       replies: 0,
       listened: 0,
-      timeout: config.timeout,
-      replyAt(replyMethod, timeout) {
-        this.timeout = timeout || this.timeout;
-        this.reply = typeof replyMethod === 'function';
-        if (this.reply) this.replyMethod = replyMethod;
-        return this;
-      },
-      async send(cb) {
-        await $.pub.set(
-          prefix + '_mono:' + this.key,
-          JSON.stringify({
-            key: this.key,
-            contents: this.contents,
-            reply: this.reply,
-            ts: this.ts,
-            channel: channel,
-          }),
+      timeout: this.#config.timeout,
+      send: send.bind(this),
+      sendDelay: type === 'mono' ? sendDelay.bind(this) : undefined,
+      awaitReply: awaitReply.bind(this),
+    };
+
+    emitObj.replyAt = (replyMethod, timeout) => {
+      emitObj.timeout = timeout || emitObj.timeout;
+      emitObj.reply = typeof replyMethod === 'function';
+      if (emitObj.reply) emitObj.replyMethod = replyMethod;
+      return emitObj;
+    };
+
+    async function send(cb) {
+      let pubPayload = null;
+
+      if (type === 'mono') {
+        pubPayload = this.#prefix + '_mono:' + emitObj.key;
+        await this.#pub.set(
+          pubPayload,
+          serializePayload(),
           'EX',
-          Math.ceil((this.timeout + 1000) / 1000)
+          Math.ceil((emitObj.timeout + 1000) / 1000)
         );
-        if (this.reply) {
-          $.on(
-            prefix + '_monoReply:' + this.key,
-            (rawReply) => {
-              // eslint-disable-next-line
-              var [replyData, _registeredEvent] = rawReply;
-              this.replies++;
-              if (config.debug)
-                console.log(
-                  'Snub.mono reply => ',
-                  prefix + channel,
-                  Date.now() - this.ts + 'ms'
-                );
-              if (typeof replyData === 'object' && replyData !== null)
-                Object.defineProperty(replyData, 'responseTime', {
-                  value: Date.now() - this.ts,
-                });
-              this.replyMethod(replyData);
-            },
-            true
-          );
-          setTimeout((_) => {
-            $.off(prefix + '_monoReply:' + this.key);
-            if (this.replies < 1)
-              this.replyMethod(
-                null,
-                'Snub Error => Event timeout, no reply from : ' +
-                  prefix +
-                  channel
-              );
-          }, this.timeout);
-        }
-        this.listened = await $.pub.publish(
-          prefix + channel,
-          prefix + '_mono:' + this.key
-        );
-        if (typeof cb === 'function') cb(this.listened);
-        return this.listened;
-      },
-      // linger is how many seconds the event will sit waiting to be picked
-      async sendDelay(seconds, linger = 5) {
-        await $.pub.set(
-          prefix + '_monoDelay:' + this.key,
-          JSON.stringify({
-            key: this.key,
-            contents: this.contents,
-            ts: this.ts,
-            channel: channel,
-            seconds: seconds,
-          }),
-          'EX',
-          seconds + linger
-        );
-      },
-      awaitReply(timeout) {
-        return new Promise((resolve, reject) => {
-          this.replyAt((data, err) => {
+      }
+
+      if (type === 'poly') {
+        pubPayload = serializePayload();
+      }
+
+      // handle reply
+      if (emitObj.reply) {
+        const replyEventName = this.#prefix + '_monoReply:' + emitObj.key;
+
+        let replyTimout = setTimeout((_) => {
+          this.off(replyEventName);
+          if (type === 'mono' && emitObj.replies < 1) {
+            emitObj.replyMethod(
+              null,
+              'Snub Error => Event timeout, no reply from : ' +
+                this.#prefix +
+                eventName
+            );
+          }
+        }, emitObj.timeout);
+
+        setTimeout((_) => {
+          this.off(replyEventName);
+        }, emitObj.timeout + 1000);
+
+        this.on(replyEventName, (rawReply) => {
+          const [replyData, _registeredEvent] = rawReply;
+          emitObj.replies++;
+          if (this.#config.debug)
+            console.log(
+              'Snub.emit reply => ',
+              this.#prefix + eventName,
+              Date.now() - emitObj.ts + 'ms'
+            );
+          if (typeof replyData === 'object' && replyData !== null)
+            Object.defineProperty(replyData, 'responseTime', {
+              value: Date.now() - emitObj.ts,
+            });
+          emitObj.replyMethod(replyData);
+          if (type === 'mono') {
+            emitObj.replyMethod = (_) => {};
+            clearTimeout(replyTimout);
+          }
+        });
+      }
+
+      emitObj.listened = await this.#pub.publish(
+        this.#prefix + eventName,
+        pubPayload
+      );
+      if (typeof cb === 'function') cb(emitObj.listened);
+      return emitObj.listened;
+    }
+
+    async function sendDelay(
+      seconds,
+      linger = this.#config.delayResolution * 2
+    ) {
+      //@todo poly delay and support replies
+      const key =
+        this.#prefix +
+        '_monoDelay:' +
+        emitObj.key +
+        ':' +
+        (emitObj.ts + seconds * 1000);
+      await this.#pub.set(
+        key,
+        serializePayload({ seconds }),
+        'EX',
+        seconds + linger / 1000 // redis is in seconds.
+      );
+    }
+
+    // meet expected replies or timeout whichever comes first.
+    function awaitReply(timeout, expectedReplies) {
+      expectedReplies = type === 'mono' ? 1 : expectedReplies;
+      const replies = [];
+      emitObj.timeout = timeout || emitObj.timeout;
+      return new Promise((resolve, reject) => {
+        emitObj
+          .replyAt((data, err) => {
             if (err) return reject(err);
-            resolve(data);
-          }, timeout).send((count) => {
+            let to = setTimeout((_) => {
+              resolve(type === 'mono' ? replies[0] : replies);
+            }, emitObj.timeout);
+            replies.push(data);
+
+            if (replies.length >= expectedReplies) {
+              clearTimeout(to);
+              resolve(type === 'mono' ? replies[0] : replies);
+            }
+          }, emitObj.timeout)
+          .send((count) => {
             if (count < 1)
               reject('Snub Error => nothing was listing to this event.');
           });
-        });
-      },
-    };
-  };
+      });
+    }
 
-  // sending messages to any/all matching listeners
-  this.poly = function (channel, data) {
-    if (config.debug) console.log('Snub.poly => ', prefix + channel);
+    function serializePayload(extra = {}) {
+      return stringifyJson({
+        key: emitObj.key,
+        contents: emitObj.contents,
+        reply: emitObj.reply,
+        ts: emitObj.ts,
+        eventName: eventName,
+        channel: eventName, // legacy
+        ...extra,
+      });
+    }
 
-    return {
-      key: generateUID(),
-      contents: data,
-      reply: false,
-      ts: Date.now(),
-      replyMethod: null,
-      replies: 0,
-      listened: 0,
-      timeout: config.timeout,
-      replyAt(replyMethod, timeout) {
-        this.timeout = timeout || this.timeout;
-        this.reply = typeof replyMethod === 'function';
-        if (this.reply) this.replyMethod = replyMethod;
-        return this;
-      },
-      async send(cb) {
-        if (this.reply) {
-          $.on(prefix + '_monoReply:' + this.key, (rawReply) => {
-            // eslint-disable-next-line
-            var [replyData, _registeredEvent] = rawReply;
-            if (config.debug)
-              console.log(
-                'Snub.poly reply => ',
-                prefix + channel,
-                Date.now() - this.ts + 'ms'
-              );
-            if (typeof replyData === 'object' && replyData !== null)
-              Object.defineProperty(replyData, 'responseTime', {
-                value: Date.now() - this.ts,
-              });
-            this.replyMethod(replyData);
-          });
-          setTimeout((_) => {
-            $.off(prefix + '_monoReply:' + this.key);
-          }, this.timeout);
-        }
-        this.listened = await $.pub.publish(
-          prefix + channel,
-          JSON.stringify({
-            key: this.key,
-            contents: this.contents,
-            reply: this.reply,
-            ts: this.ts,
-          })
-        );
+    return emitObj;
+  }
 
-        if (typeof cb === 'function') cb(this.listened);
-        return this.listened;
-      },
-    };
-  };
+  #pmessage(pattern, channel, message) {
+    pattern = pattern.replace(this.#prefix, '');
 
-  this.generateUID = generateUID;
+    const registeredEvents = this.#find(pattern);
+    // console.log('Snub pmessage => ', pattern, registeredEvents, e);
 
-  this.use = function (method) {
-    if (typeof method === 'function') method($);
-  };
-
-  function pmessage(pattern, channel, message) {
-    pattern = pattern.replace(prefix, '');
-
-    var e = eventsRegistered.filter((e, idx) => {
-      if (e.pattern !== pattern) return false;
-      if (
-        message.includes(prefix + '_mono:') &&
-        eventsRegistered.findIndex((i) => i.pattern === e.pattern) !== idx
-      )
-        return false;
-      return true;
-    });
-    if (e.length < 1) return;
-    // if you have multiple listeners on the same instance randomize the order mainly for the sake of it, you know in case...
-    // if (config.debug)
-    //   console.log('Snub pmessage matches => ', pattern, e);
-
-    e.sort(() => Math.round(Math.random() * 2) - 1).forEach(async (e) => {
-      var data;
+    registeredEvents.forEach(async (event) => {
+      let data;
       // mono messages get delivered once.
-      if (message.includes(prefix + '_mono:')) {
+      if (message.includes(this.#prefix + '_mono:')) {
         // wait is in ms, it will give all handlers a fighting chance to grab the message.
-        await justWait(Math.round(Math.random() * config.monoWait));
-        var response = await $.pub
+        await justWait(Math.round(Math.random() * this.#config.monoWait));
+        const response = await this.#pub
           .pipeline([
             ['get', message],
             ['del', message],
           ])
           .exec();
-        var [getR, delR] = response;
+        const [getR, delR] = response;
         if (delR[1] && getR[1]) message = getR[1];
         else return;
       }
       try {
-        data = JSON.parse(message);
-      } catch (e) {
-        if (config.debug) console.log('Snub Error => ' + e);
+        data = parseJson(message);
+      } catch (event) {
+        if (this.#config.debug) console.log('Snub Error => ' + event);
       }
 
       // console.log('Snub pmessage data => ', pattern, data);
-      var replyMethod = null;
+      let replyMethod = (_) => {};
       if (data.reply) {
         replyMethod = (replyData) => {
           // console.log('Snub pmessage reply data => ', pattern, replyData);
-          this.poly(prefix + '_monoReply:' + data.key, [replyData, e]).send();
-          stat({
-            pattern: e.pattern,
+          this.poly(this.#prefix + '_monoReply:' + data.key, [
+            replyData,
+            event,
+          ]).send();
+          this.#stat({
+            pattern: event.pattern,
             replyTime: Date.now() - data.ts,
           });
         };
       }
 
-      var intercept = await config.intercepter(
+      const intercept = await this.#config.interceptor(
         data.contents,
         replyMethod,
-        e.pattern,
+        event.pattern,
         channel
       );
       if (intercept === false) return;
 
-      e.method(data.contents, replyMethod, channel, e.pattern);
+      event.method(data.contents, replyMethod, channel, event.pattern);
       if (!replyMethod)
-        stat({
-          pattern: e.pattern,
+        this.#stat({
+          pattern: event.pattern,
           replyTime: 0,
         });
 
-      if (e.once) this.off(e.pattern + (e.namespace ? '.' + e.namespace : ''));
+      if (event.once)
+        this.off(
+          event.pattern + (event.namespace ? '.' + event.namespace : '')
+        );
     });
   }
-};
+}
 
 function justWait(ms = 1000) {
   return new Promise((resolve) => {
@@ -379,9 +450,39 @@ function justWait(ms = 1000) {
 }
 
 function generateUID() {
-  var firstPart = (Math.random() * 46656) | 0;
-  var secondPart = (Math.random() * 46656) | 0;
+  let firstPart = (Math.random() * 46656) | 0;
+  let secondPart = (Math.random() * 46656) | 0;
   firstPart = ('000' + firstPart.toString(36)).slice(-3);
   secondPart = ('000' + secondPart.toString(36)).slice(-3);
   return firstPart + secondPart;
 }
+
+function stringifyJson(obj) {
+  return JSON.stringify(obj, (key, value) => {
+    if (value instanceof Map) {
+      return {
+        dataType: 'Map',
+        value: Array.from(value.entries()), // Convert Map to array of key-value pairs
+      };
+    } else if (value instanceof Set) {
+      return {
+        dataType: 'Set',
+        value: Array.from(value), // Convert Set to array
+      };
+    }
+    return value;
+  });
+}
+
+function parseJson(json) {
+  return JSON.parse(json, (key, value) => {
+    if (value && value.dataType === 'Map') {
+      return new Map(value.value); // Convert array of key-value pairs back to Map
+    } else if (value && value.dataType === 'Set') {
+      return new Set(value.value); // Convert array back to Set
+    }
+    return value;
+  });
+}
+
+module.exports = Snub;
