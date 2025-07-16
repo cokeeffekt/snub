@@ -62,26 +62,36 @@ class Snub {
     });
 
     // message delay interval
-    setInterval(async (_) => {
+    setInterval(async () => {
       const now = Date.now();
-      const keys = await this.#redis.keys(`${this.#prefix}_monoDelay:*`);
-
-      keys.forEach(async (key) => {
-        const [_, __, id, when] = key.split(':');
-        if (now < parseInt(when)) return;
-        if (this.#config.debug) console.log('Snub Delayed event => ', key);
-        const event = await this.#pub
-          .pipeline([
-            ['get', key],
-            ['del', key],
-          ])
-          .exec();
-        if (!event[0][1]) return;
-        let payload = event[0][1];
-        payload = parseJson(payload);
-        this.mono(payload.eventName, payload.contents).send();
-      });
+      const pattern = `${this.#prefix}_monoDelay:*`;
+      let cursor = '0';
+    
+      do {
+        const [nextCursor, keys] = await this.#redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100); // adjust COUNT as needed
+        cursor = nextCursor;
+    
+        for (const key of keys) {
+          const [_, __, id, when] = key.split(':');
+          if (now < parseInt(when)) continue;
+    
+          if (this.#config.debug) console.log('Snub Delayed event => ', key);
+    
+          const [[, eventData], [, _delStatus]] = await this.#pub
+            .pipeline([
+              ['get', key],
+              ['del', key],
+            ])
+            .exec();
+    
+          if (!eventData) continue;
+    
+          const payload = parseJson(eventData);
+          this.mono(payload.eventName, payload.contents).send();
+        }
+      } while (cursor !== '0');
     }, this.#config.delayResolution);
+    
   }
 
   get status() {
