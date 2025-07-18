@@ -7,6 +7,7 @@ const DEFAULT_CONFIG = {
   monoWait: 50, // this is a maximum wait time in ms for mono messages to be delivered.
   timeout: 5000,
   nsSeparator: '.',
+  handleDelays: false,
   delayResolution: 1000, // mono delay resolution in ms
   stats: (_) => {},
   redisAuth: null,
@@ -61,22 +62,28 @@ class Snub {
       console.error('Redis Sub error:', err, config);
     });
 
-    // message delay interval
-    setInterval(async () => {
-      const now = Date.now();
-      const pattern = `${this.#prefix}_monoDelay:*`;
-      let cursor = '0';
-    
-      do {
-        const [nextCursor, keys] = await this.#redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100); // adjust COUNT as needed
-        cursor = nextCursor;
-    
-        for (const key of keys) {
-          const [_, __, id, when] = key.split(':');
-          if (now < parseInt(when)) continue;
-    
-          if (this.#config.debug) console.log('Snub Delayed event => ', key);
-    
+    if (this.#config.handleDelays) {
+      // message delay interval
+      setInterval(async () => {
+        const now = Date.now();
+        const pattern = `${this.#prefix}_monoDelay:*`;
+        let cursor = '0';
+        const keysToDelete = [];
+      
+        do {
+          const [nextCursor, keys] = await this.#redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100); // adjust COUNT as needed
+          cursor = nextCursor;
+      
+          for (const key of keys) {
+            const [_, __, id, when] = key.split(':');
+            if (now < parseInt(when)) continue;
+      
+            if (this.#config.debug) console.log('Snub Delayed event => ', key);
+            keysToDelete.push(key);
+          }
+        } while (cursor !== '0');
+
+        for (const key of keysToDelete) {
           const [[, eventData], [, _delStatus]] = await this.#pub
             .pipeline([
               ['get', key],
@@ -89,9 +96,8 @@ class Snub {
           const payload = parseJson(eventData);
           this.mono(payload.eventName, payload.contents).send();
         }
-      } while (cursor !== '0');
-    }, this.#config.delayResolution);
-    
+      }, this.#config.delayResolution);
+    }
   }
 
   get status() {
