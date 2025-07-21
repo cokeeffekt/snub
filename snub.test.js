@@ -331,6 +331,7 @@ test('Publish mono delay test', async function () {
 
   await snub.mono('test-listener-mono-delay', { data: 456 }).sendDelay(2);
   await snub.on('test-listener-mono-delay', (payload) => {
+    console.log('!!!!!test-listener-mono-delay', payload);
     data = payload.data;
     ran++;
   });

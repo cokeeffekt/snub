@@ -64,32 +64,34 @@ class Snub {
     // message delay interval
     setInterval(async () => {
       const now = Date.now();
-      const pattern = `${this.#prefix}_monoDelay:*`;
-      let cursor = '0';
+      const queueKey = `${this.#prefix}_monoDelayQueue`;
+      const maxJobs = 100; // tune this based on expected load
     
-      do {
-        const [nextCursor, keys] = await this.#redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100); // adjust COUNT as needed
-        cursor = nextCursor;
+      try {
+        const jobs = await this.#redis.zrangebyscore(queueKey, 0, now, 'LIMIT', 0, maxJobs);
     
-        for (const key of keys) {
-          const [_, __, id, when] = key.split(':');
-          if (now < parseInt(when)) continue;
+        for (const job of jobs) {
+          // Atomically attempt to remove the job to prevent duplicates across workers
+          const removed = await this.#redis.zrem(queueKey, job);
+          if (!removed) continue; // someone else claimed it
     
-          if (this.#config.debug) console.log('Snub Delayed event => ', key);
+          if (this.#config.debug) console.log('Snub Delayed event =>', job);
     
-          const [[, eventData], [, _delStatus]] = await this.#pub
-            .pipeline([
-              ['get', key],
-              ['del', key],
-            ])
-            .exec();
+          let payload;
+          try {
+            payload = parseJson(job);
+          } catch (err) {
+            console.error('Failed to parse job payload:', err);
+            continue;
+          }
     
-          if (!eventData) continue;
-    
-          const payload = parseJson(eventData);
-          this.mono(payload.eventName, payload.contents).send();
+          if (payload?.eventName && payload?.contents) {
+            this.mono(payload.eventName, payload.contents).send();
+          }
         }
-      } while (cursor !== '0');
+      } catch (err) {
+        console.error('Error processing delayed queue:', err);
+      }
     }, this.#config.delayResolution);
     
   }
@@ -326,23 +328,11 @@ class Snub {
       return emitObj.listened;
     }
 
-    async function sendDelay(
-      seconds,
-      linger = this.#config.delayResolution * 2
-    ) {
-      //@todo poly delay and support replies
-      const key =
-        this.#prefix +
-        '_monoDelay:' +
-        emitObj.key +
-        ':' +
-        (emitObj.ts + seconds * 1000);
-      await this.#pub.set(
-        key,
-        serializePayload({ seconds }),
-        'EX',
-        seconds + linger / 1000 // redis is in seconds.
-      );
+    async function sendDelay(seconds) {
+      const when = emitObj.ts + seconds * 1000; // scheduled time
+    
+      const zsetKey = `${this.#prefix}_monoDelayQueue`;
+      await this.#pub.zadd(zsetKey, when, serializePayload());
     }
 
     // meet expected replies or timeout whichever comes first.
