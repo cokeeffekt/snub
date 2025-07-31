@@ -332,7 +332,7 @@ class Snub {
       const when = emitObj.ts + seconds * 1000; // scheduled time
     
       const zsetKey = `${this.#prefix}_monoDelayQueue`;
-      await this.#pub.zadd(zsetKey, when, serializePayload());
+      await this.#redis.zadd(zsetKey, when, serializePayload());
     }
 
     // meet expected replies or timeout whichever comes first.
