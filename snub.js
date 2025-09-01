@@ -356,7 +356,7 @@ class Snub {
           }, emitObj.timeout)
           .send((count) => {
             if (count < 1)
-              reject('Snub Error => nothing was listing to this event.');
+              reject('Snub Error => nothing was listening to this event : ' + this.#prefix + eventName);
           });
       });
     }
