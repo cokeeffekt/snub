@@ -370,6 +370,208 @@ test('Leak test', async function () {
   expect(snub.status.listeners).toBe(listenCountNew);
 }, 10000);
 
+// ─── new tests ───────────────────────────────────────────────────────────────
+
+test('once() fires exactly once', async function () {
+  var count = 0;
+  await snub.once('test-once-single', () => { count++; });
+
+  // wait between sends so the once removal completes before the next delivery
+  await snub.poly('test-once-single', {}).send();
+  await justWait(100);
+  await snub.poly('test-once-single', {}).send();
+  await justWait(100);
+  await snub.poly('test-once-single', {}).send();
+  await justWait(100);
+
+  expect(count).toBe(1);
+}, 10000);
+
+test('once() does not remove sibling on() listeners', async function () {
+  var onceCount = 0;
+  var onCount = 0;
+
+  await snub.once('test-once-sibling', () => { onceCount++; });
+  await snub.on('test-once-sibling', () => { onCount++; });
+
+  await snub.poly('test-once-sibling', {}).send();
+  await justWait(100);
+  expect(onceCount).toBe(1);
+  expect(onCount).toBe(1);
+
+  // second send — once is gone, permanent listener still fires
+  await snub.poly('test-once-sibling', {}).send();
+  await justWait(100);
+  expect(onceCount).toBe(1);
+  expect(onCount).toBe(2);
+
+  await snub.off('test-once-sibling');
+}, 10000);
+
+test('off() with namespace removes only that namespace', async function () {
+  var ns1 = 0;
+  var ns2 = 0;
+
+  await snub.on('test-off-ns.a', () => { ns1++; });
+  await snub.on('test-off-ns.b', () => { ns2++; });
+
+  await snub.poly('test-off-ns', {}).send();
+  await justWait(100);
+  expect(ns1).toBe(1);
+  expect(ns2).toBe(1);
+
+  await snub.off('test-off-ns.a');
+
+  await snub.poly('test-off-ns', {}).send();
+  await justWait(100);
+  expect(ns1).toBe(1); // removed — should not fire again
+  expect(ns2).toBe(2); // still active
+
+  await snub.off('test-off-ns.b');
+}, 10000);
+
+test('replyAt fires error immediately when no listeners', async function () {
+  var err = null;
+  var start = Date.now();
+
+  await new Promise((resolve) => {
+    snub
+      .mono('test-replyat-no-listener-fast', {})
+      .replyAt((data, e) => {
+        err = e;
+        resolve();
+      }, 5000) // long timeout — error should arrive well before it
+      .send();
+    setTimeout(resolve, 1000); // safety fallback
+  });
+
+  expect(err).toBeTruthy();
+  expect(Date.now() - start).toBeLessThan(500);
+}, 10000);
+
+test('awaitReply resolves early when expectedReplies met', async function () {
+  // 3 listeners, expectedReplies=3 — resolves as soon as all arrive, well before timeout
+  await snub.on('test-early-resolve.a', (p, reply) => reply({ n: 1 }));
+  await snub.on('test-early-resolve.b', (p, reply) => reply({ n: 2 }));
+  await snub.on('test-early-resolve.c', (p, reply) => reply({ n: 3 }));
+
+  var start = Date.now();
+  var replies = await snub.poly('test-early-resolve', {}).awaitReply(5000, 3);
+
+  expect(Array.isArray(replies)).toBe(true);
+  expect(replies.length).toBe(3);
+  expect(Date.now() - start).toBeLessThan(1000); // well before 5000ms timeout
+
+  await snub.off('test-early-resolve');
+}, 10000);
+
+test('use() calls function with the snub instance', async function () {
+  var received = null;
+  await snub.use((instance) => { received = instance; });
+  expect(received).toBe(snub);
+}, 10000);
+
+test('status returns expected shape', async function () {
+  var s = snub.status;
+  expect(typeof s.listeners).toBe('number');
+  expect(typeof s.patterns).toBe('number');
+  expect(s.listeners).toBeGreaterThanOrEqual(0);
+  expect(s.patterns).toBeGreaterThanOrEqual(0);
+}, 10000);
+
+test('Map and Set survive serialization roundtrip', async function () {
+  var sent = {
+    m: new Map([['key', 'value'], ['num', 42]]),
+    s: new Set([1, 2, 3]),
+  };
+  var received = null;
+
+  await snub.on('test-map-set', (payload) => { received = payload; });
+  await snub.poly('test-map-set', sent).send();
+  await justWait(150);
+
+  expect(received.m instanceof Map).toBe(true);
+  expect(received.m.get('key')).toBe('value');
+  expect(received.m.get('num')).toBe(42);
+  expect(received.s instanceof Set).toBe(true);
+  expect(received.s.has(2)).toBe(true);
+
+  await snub.off('test-map-set');
+}, 10000);
+
+test('interceptor array — all interceptors run in order', async function () {
+  var order = [];
+  var snub2 = new Snub({
+    redisAuth: { port: 6379, host: 'localhost', db: 8 },
+    interceptor: [
+      async () => { order.push(1); return true; },
+      async () => { order.push(2); return true; },
+    ],
+  });
+
+  var received = false;
+  await snub2.on('test-interceptor-arr', () => { received = true; });
+  await snub2.poly('test-interceptor-arr', {}).send();
+  await justWait(150);
+
+  expect(received).toBe(true);
+  expect(order).toEqual([1, 2]);
+  await snub2.close();
+}, 10000);
+
+test('interceptor array — first false blocks the chain', async function () {
+  var secondRan = false;
+  var snub2 = new Snub({
+    redisAuth: { port: 6379, host: 'localhost', db: 8 },
+    interceptor: [
+      async () => false,
+      async () => { secondRan = true; return true; },
+    ],
+  });
+
+  var received = false;
+  await snub2.on('test-interceptor-arr-block', () => { received = true; });
+  await snub2.poly('test-interceptor-arr-block', {}).send();
+  await justWait(150);
+
+  expect(received).toBe(false);
+  expect(secondRan).toBe(false);
+  await snub2.close();
+}, 10000);
+
+test('close() resolves cleanly', async function () {
+  var snubTemp = new Snub({
+    redisAuth: { port: 6379, host: 'localhost', db: 8 },
+  });
+  await expect(snubTemp.close()).resolves.not.toThrow();
+}, 10000);
+
+test('sendDelay returns a job ID and cancelDelay prevents delivery', async function () {
+  var received = false;
+  await snub.on('test-cancel-delay-msg', () => { received = true; });
+
+  var jobId = await snub.mono('test-cancel-delay-msg', {}).sendDelay(2);
+  expect(typeof jobId).toBe('string');
+  expect(jobId.length).toBeGreaterThan(0);
+
+  var cancelled = await snub.cancelDelay(jobId);
+  expect(cancelled).toBe(true);
+
+  await justWait(3000); // past when it would have fired
+  expect(received).toBe(false);
+
+  await snub.off('test-cancel-delay-msg');
+}, 10000);
+
+test('cancelDelay returns false for unknown job id', async function () {
+  var result = await snub.cancelDelay('000000000000000000');
+  expect(result).toBe(false);
+}, 10000);
+
+afterAll(async () => {
+  await snub.close();
+});
+
 function justWait(ms = 1000) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
