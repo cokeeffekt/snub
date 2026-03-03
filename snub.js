@@ -53,21 +53,21 @@ class Snub {
     this.#redis.client('SETNAME', 'redis:' + filename).catch(() => {});
 
     this.#redis.on('error', (err) => {
-      console.error('Redis error:', err, config);
+      console.error(`[snub] Redis (store) connection error (${redisConnStr(this.#redis)}):`, err.message);
     });
 
     this.#pub = new Redis(config.redisAuth || config);
     this.#pub.client('SETNAME', 'pub:' + filename).catch(() => {});
 
     this.#pub.on('error', (err) => {
-      console.error('Redis Pub error:', err, config);
+      console.error(`[snub] Redis (pub) connection error (${redisConnStr(this.#pub)}):`, err.message);
     });
 
     this.#sub = new Redis(config.redisAuth || config);
     this.#sub.client('SETNAME', 'sub:' + filename).catch(() => {});
     this.#sub.on('pmessage', this.#pmessage.bind(this));
     this.#sub.on('error', (err) => {
-      console.error('Redis Sub error:', err, config);
+      console.error(`[snub] Redis (sub) connection error (${redisConnStr(this.#sub)}):`, err.message);
     });
 
     // message delay interval — opt out with processDelayQueue: false
@@ -91,16 +91,16 @@ class Snub {
           try {
             payload = parseJson(job);
           } catch (err) {
-            console.error('Failed to parse job payload:', err);
+            console.error('[snub] Failed to parse delayed job payload:', err.message, '— raw:', String(job).slice(0, 120));
             continue;
           }
-    
+
           if (payload?.eventName && payload?.contents) {
             this.mono(payload.eventName, payload.contents).send();
           }
         }
       } catch (err) {
-        console.error('Error processing delayed queue:', err);
+        console.error('[snub] Delay queue poll failed:', err.message);
       }
     }, this.#config.delayResolution);
     
@@ -226,7 +226,7 @@ class Snub {
       await this.#sub.psubscribe(this.#prefix + pattern);
       this.#subscribedPatterns.add(this.#prefix + pattern);
     } catch (error) {
-      console.log('Snub Error => ' + error);
+      console.error(`[snub] Failed to subscribe to "${this.#prefix + pattern}":`, error.message);
       this.#remove(eventObject);
     }
     if (this.#config.debug) console.log('Snub.on => ', this.#prefix + iPattern);
@@ -259,7 +259,7 @@ class Snub {
         await this.#sub.punsubscribe(this.#prefix + pattern);
         this.#subscribedPatterns.delete(this.#prefix + pattern);
       } catch (error) {
-        console.log('Snub Error => ' + error);
+        console.error(`[snub] Failed to unsubscribe from "${this.#prefix + pattern}":`, error.message);
       }
     }
     if (this.#config.debug)
@@ -322,9 +322,7 @@ class Snub {
           if (type === 'mono' && emitObj.replies < 1) {
             emitObj.replyMethod(
               null,
-              'Snub Error => Event timeout, no reply from : ' +
-                this.#prefix +
-                eventName
+              `[snub] Timed out waiting for a reply to "${eventName}" (${emitObj.timeout}ms)`
             );
           }
         }, emitObj.timeout);
@@ -366,9 +364,7 @@ class Snub {
         this.off(replyEventName);
         emitObj.replyMethod(
           null,
-          'Snub Error => Event timeout, no reply from : ' +
-            this.#prefix +
-            eventName
+          `[snub] No listeners on "${eventName}" — message was not delivered`
         );
       }
 
@@ -410,7 +406,7 @@ class Snub {
           }, emitObj.timeout)
           .send((count) => {
             if (count < 1)
-              reject('Snub Error => nothing was listing to this event.');
+              reject(`[snub] No listeners on "${eventName}" — nothing is subscribed to this event`);
           });
       });
     }
@@ -454,8 +450,8 @@ class Snub {
       }
       try {
         data = parseJson(message);
-      } catch (event) {
-        if (this.#config.debug) console.log('Snub Error => ' + event);
+      } catch (parseErr) {
+        if (this.#config.debug) console.error(`[snub] Failed to parse message on "${channel}":`, parseErr.message, '— raw:', String(message).slice(0, 120));
       }
 
       // console.log('Snub pmessage data => ', pattern, data);
@@ -495,6 +491,11 @@ class Snub {
         this.#remove(event);
     });
   }
+}
+
+function redisConnStr(client) {
+  const { host = 'localhost', port = 6379, db = 0 } = client.options || {};
+  return `${host}:${port}/db${db}`;
 }
 
 function justWait(ms = 1000) {
