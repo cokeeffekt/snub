@@ -1,3 +1,13 @@
+jest.mock('ioredis', () => {
+  const IORedisMock = require('ioredis-mock');
+  class MockRedis extends IORedisMock {
+    client() {
+      return Promise.resolve('OK');
+    }
+  }
+  return MockRedis;
+});
+
 const Snub = require('snub');
 
 var snub = new Snub({

@@ -17,7 +17,7 @@ const DEFAULT_CONFIG = {
 };
 
 class Snub {
-  #subcribedPatterns = new Set();
+  #subscribedPatterns = new Set();
   #eventsMap = new Map();
   #config;
   #prefix;
@@ -41,21 +41,21 @@ class Snub {
 
     // keeping concerns separate with different redis connections
     this.#redis = new Redis(config.redisStore || config.redisAuth || config);
-    this.#redis.client('SETNAME', 'redis:' + filename);
+    this.#redis.client('SETNAME', 'redis:' + filename).catch(() => {});
 
     this.#redis.on('error', (err) => {
       console.error('Redis error:', err, config);
     });
 
     this.#pub = new Redis(config.redisAuth || config);
-    this.#pub.client('SETNAME', 'pub:' + filename);
+    this.#pub.client('SETNAME', 'pub:' + filename).catch(() => {});
 
     this.#pub.on('error', (err) => {
       console.error('Redis Pub error:', err, config);
     });
 
     this.#sub = new Redis(config.redisAuth || config);
-    this.#sub.client('SETNAME', 'sub:' + filename);
+    this.#sub.client('SETNAME', 'sub:' + filename).catch(() => {});
     this.#sub.on('pmessage', this.#pmessage.bind(this));
     this.#sub.on('error', (err) => {
       console.error('Redis Sub error:', err, config);
@@ -99,11 +99,11 @@ class Snub {
   get status() {
     return {
       listeners: this.eventListenerCount,
-      patterns: this.#subcribedPatterns.size,
+      patterns: this.#subscribedPatterns.size,
       redisPub: this.#pub.status,
       redisSub: this.#sub.status,
       redis: this.#redis.status,
-      // subPatternKeys: this.#subcribedPatterns.keys(),
+      // subPatternKeys: this.#subscribedPatterns.keys(),
       // eventMapKeys: this.#eventsMap.keys(),
     };
   }
@@ -193,7 +193,7 @@ class Snub {
     this.#eventsMap.set(pattern, eventList);
     try {
       await this.#sub.psubscribe(this.#prefix + pattern);
-      this.#subcribedPatterns.add(this.#prefix + pattern);
+      this.#subscribedPatterns.add(this.#prefix + pattern);
     } catch (error) {
       console.log('Snub Error => ' + error);
       this.#remove(eventObject);
@@ -225,7 +225,7 @@ class Snub {
     if (!eventList.length) {
       try {
         await this.#sub.punsubscribe(this.#prefix + pattern);
-        this.#subcribedPatterns.delete(this.#prefix + pattern);
+        this.#subscribedPatterns.delete(this.#prefix + pattern);
       } catch (error) {
         console.log('Snub Error => ' + error);
       }
