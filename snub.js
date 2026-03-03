@@ -21,6 +21,7 @@ class Snub {
   #eventsMap = new Map();
   #config;
   #prefix;
+  #nsSeparator;
 
   #redis;
   #pub;
@@ -33,6 +34,7 @@ class Snub {
     };
     if (!config.auth) this.#config.auth = undefined;
     this.#prefix = this.#config.prefix.replace(/:/gim, '') + ':';
+    this.#nsSeparator = this.#config.nsSeparator;
 
     // config.debug = true;
     if (this.#config.debug) console.info('Snub Init => ', config);
@@ -147,15 +149,15 @@ class Snub {
   }
 
   async on(iPattern, method) {
-    this.#add(iPattern, method, false);
+    await this.#add(iPattern, method, false);
   }
 
   async once(iPattern, method) {
-    this.#add(iPattern, method, true);
+    await this.#add(iPattern, method, true);
   }
 
   async off(iPattern) {
-    this.#remove(iPattern);
+    await this.#remove(iPattern);
   }
 
   mono(channel, data) {
@@ -168,7 +170,7 @@ class Snub {
 
   // private functions
   #find(iPattern) {
-    const [pattern, namespace] = iPattern.split('.');
+    const [pattern, namespace] = iPattern.split(this.#nsSeparator);
     let eventList = this.#eventsMap.get(pattern) || [];
     eventList = eventList.filter(
       (e) => e.namespace === namespace || !namespace
@@ -177,7 +179,7 @@ class Snub {
   }
 
   async #add(iPattern, method, once) {
-    const [pattern, namespace] = iPattern.split('.');
+    const [pattern, namespace] = iPattern.split(this.#nsSeparator);
     let eventList = this.#eventsMap.get(pattern);
     if (!eventList) {
       eventList = [];
@@ -209,7 +211,7 @@ class Snub {
       pattern = iPattern.pattern;
       namespace = iPattern.namespace;
     } else {
-      [pattern, namespace] = iPattern.split('.');
+      [pattern, namespace] = iPattern.split(this.#nsSeparator);
     }
     if (!namespace) this.#eventsMap.delete(pattern);
     else {
@@ -235,7 +237,7 @@ class Snub {
   }
 
   #stat(obj) {
-    if (!obj.pattern.startsWith(this.#prefix)) this.#config.stats(obj);
+    if (!obj.pattern.startsWith('_')) this.#config.stats(obj);
   }
 
   #emit(type, eventName, data) {
@@ -429,7 +431,7 @@ class Snub {
       if (intercept === false) return;
 
       event.method(data.contents, replyMethod, channel, event.pattern);
-      if (!replyMethod)
+      if (!data.reply)
         this.#stat({
           pattern: event.pattern,
           replyTime: 0,
