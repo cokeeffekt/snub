@@ -131,24 +131,22 @@ In this example, `replyAt` receives multiple replies from the listeners, allowin
 
 ### Delayed Sending
 
-The `sendDelay` function can be used to add a delay before sending the message. This can be helpful for scheduling or spacing out events.
+The `sendDelay` function schedules a mono message to be delivered after a delay. The message is stored in Redis and dispatched by whichever Snub instance polls the queue first.
+
+> **Note:** `sendDelay` is fire-and-schedule — replies are not supported. The original call context (process, promise, timeout) is gone by the time the message is delivered. Do not chain `awaitReply` or `replyAt` with `sendDelay`.
 
 ```js
-snub.on('test-listener-mono-delay', (payload, reply) => {
-  reply({ result: payload.value * 2 });
+snub.on('test-listener-mono-delay', (payload) => {
+  console.log('Received after delay:', payload.value);
 });
 
 (async () => {
-  try {
-    await snub.mono('test-listener-mono-delay', { value: 7 }).sendDelay(5);
-    console.log('Message scheduled with a delay of 5 seconds');
-  } catch (error) {
-    console.log('Request timed out:', error);
-  }
+  await snub.mono('test-listener-mono-delay', { value: 7 }).sendDelay(5);
+  console.log('Message scheduled with a delay of 5 seconds');
 })();
 ```
 
-In this example, the `sendDelay(5)` method adds a delay of 5 seconds before the message is sent, allowing you to control the timing of your events.
+To opt a Snub instance out of polling the delay queue (e.g. in a multi-instance setup where only one instance should act as scheduler), set `processDelayQueue: false` in the config.
 
 ### Using `use` Function
 

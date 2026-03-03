@@ -9,6 +9,7 @@ const DEFAULT_CONFIG = {
   timeout: 5000,
   nsSeparator: '.',
   delayResolution: 1000, // mono delay resolution in ms
+  processDelayQueue: true, // set false on instances that should not poll the delay queue
   stats: (_) => {},
   redisAuth: null,
   redisStore: null,
@@ -23,6 +24,7 @@ class Snub {
   #config;
   #prefix;
   #nsSeparator;
+  #delayInterval = null;
 
   #redis;
   #pub;
@@ -64,8 +66,9 @@ class Snub {
       console.error('Redis Sub error:', err, config);
     });
 
-    // message delay interval
-    setInterval(async () => {
+    // message delay interval — opt out with processDelayQueue: false
+    if (this.#config.processDelayQueue === false) return;
+    this.#delayInterval = setInterval(async () => {
       const now = Date.now();
       const queueKey = `${this.#prefix}_monoDelayQueue`;
       const maxJobs = 100; // tune this based on expected load
@@ -109,6 +112,15 @@ class Snub {
       // subPatternKeys: this.#subscribedPatterns.keys(),
       // eventMapKeys: this.#eventsMap.keys(),
     };
+  }
+
+  async close() {
+    clearInterval(this.#delayInterval);
+    await Promise.all([
+      this.#redis.quit(),
+      this.#pub.quit(),
+      this.#sub.quit(),
+    ]);
   }
 
   get eventListenerCount() {
@@ -273,7 +285,7 @@ class Snub {
 
       if (type === 'mono') {
         pubPayload = this.#prefix + '_mono:' + emitObj.key;
-        await this.#pub.set(
+        await this.#redis.set(
           pubPayload,
           serializePayload(),
           'EX',
@@ -407,7 +419,7 @@ class Snub {
       if (message.includes(this.#prefix + '_mono:')) {
         // wait is in ms, it will give all handlers a fighting chance to grab the message.
         await justWait(Math.round(Math.random() * this.#config.monoWait));
-        const response = await this.#pub
+        const response = await this.#redis
           .pipeline([
             ['get', message],
             ['del', message],
