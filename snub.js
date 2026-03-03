@@ -24,6 +24,7 @@ class Snub {
   #config;
   #prefix;
   #nsSeparator;
+  #interceptors;
   #delayInterval = null;
 
   #redis;
@@ -38,6 +39,9 @@ class Snub {
     if (!config.auth) this.#config.auth = undefined;
     this.#prefix = this.#config.prefix.replace(/:/gim, '') + ':';
     this.#nsSeparator = this.#config.nsSeparator;
+    this.#interceptors = Array.isArray(this.#config.interceptor)
+      ? this.#config.interceptor
+      : [this.#config.interceptor];
 
     // config.debug = true;
     if (this.#config.debug) console.info('Snub Init => ', config);
@@ -121,6 +125,18 @@ class Snub {
       this.#pub.quit(),
       this.#sub.quit(),
     ]);
+  }
+
+  async cancelDelay(jobId) {
+    const jobKey = `${this.#prefix}_monoDelayJob:${jobId}`;
+    const payload = await this.#redis.get(jobKey);
+    if (!payload) return false;
+    const zsetKey = `${this.#prefix}_monoDelayQueue`;
+    await this.#redis.pipeline([
+      ['zrem', zsetKey, payload],
+      ['del', jobKey],
+    ]).exec();
+    return true;
   }
 
   get eventListenerCount() {
@@ -361,9 +377,16 @@ class Snub {
 
     async function sendDelay(seconds) {
       const when = emitObj.ts + seconds * 1000; // scheduled time
-    
       const zsetKey = `${this.#prefix}_monoDelayQueue`;
-      await this.#redis.zadd(zsetKey, when, serializePayload());
+      const jobKey = `${this.#prefix}_monoDelayJob:${emitObj.key}`;
+      const jobPayload = serializePayload();
+
+      await this.#redis.pipeline([
+        ['zadd', zsetKey, when, jobPayload],
+        ['set', jobKey, jobPayload, 'EX', Math.ceil(seconds) + 60],
+      ]).exec();
+
+      return emitObj.key; // job ID for use with cancelDelay()
     }
 
     // meet expected replies or timeout whichever comes first.
@@ -451,13 +474,15 @@ class Snub {
         };
       }
 
-      const intercept = await this.#config.interceptor(
-        data.contents,
-        replyMethod,
-        event.pattern,
-        channel
-      );
-      if (intercept === false) return;
+      for (const interceptorFn of this.#interceptors) {
+        const intercept = await interceptorFn(
+          data.contents,
+          replyMethod,
+          event.pattern,
+          channel
+        );
+        if (intercept === false) return;
+      }
 
       event.method(data.contents, replyMethod, channel, event.pattern);
       if (!data.reply)
