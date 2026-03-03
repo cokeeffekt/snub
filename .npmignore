@@ -1,0 +1,8 @@
+.claude/
+.vscode/
+.nvmrc
+.eslintrc.js
+prettier.config.js
+snub.code-workspace
+snub.test.js
+audit/
