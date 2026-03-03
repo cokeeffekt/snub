@@ -1,4 +1,5 @@
 const path = require('path');
+const { randomBytes } = require('crypto');
 const Redis = require('ioredis');
 
 const DEFAULT_CONFIG = {
@@ -205,23 +206,24 @@ class Snub {
 
   async #remove(iPattern) {
     let pattern;
-    let namespace;
     let eventList;
     if (typeof iPattern === 'object') {
+      // Removing a specific event object — always filter by reference,
+      // never delete the whole pattern (fixes once() nuking sibling listeners).
       pattern = iPattern.pattern;
-      namespace = iPattern.namespace;
-    } else {
-      [pattern, namespace] = iPattern.split(this.#nsSeparator);
-    }
-    if (!namespace) this.#eventsMap.delete(pattern);
-    else {
       eventList = this.#eventsMap.get(pattern) || [];
-      eventList = eventList.filter((e) =>
-        typeof iPattern === 'object'
-          ? e !== iPattern
-          : e.namespace !== namespace
-      );
+      eventList = eventList.filter((e) => e !== iPattern);
       this.#eventsMap.set(pattern, eventList);
+    } else {
+      const [p, namespace] = iPattern.split(this.#nsSeparator);
+      pattern = p;
+      if (!namespace) {
+        this.#eventsMap.delete(pattern);
+      } else {
+        eventList = this.#eventsMap.get(pattern) || [];
+        eventList = eventList.filter((e) => e.namespace !== namespace);
+        this.#eventsMap.set(pattern, eventList);
+      }
     }
     eventList = this.#eventsMap.get(pattern) || [];
     if (!eventList.length) {
@@ -266,6 +268,8 @@ class Snub {
 
     async function send(cb) {
       let pubPayload = null;
+      let replyEventName;
+      let replyTimout;
 
       if (type === 'mono') {
         pubPayload = this.#prefix + '_mono:' + emitObj.key;
@@ -283,9 +287,9 @@ class Snub {
 
       // handle reply
       if (emitObj.reply) {
-        const replyEventName = this.#prefix + '_monoReply:' + emitObj.key;
+        replyEventName = this.#prefix + '_monoReply:' + emitObj.key;
 
-        let replyTimout = setTimeout((_) => {
+        replyTimout = setTimeout((_) => {
           this.off(replyEventName);
           if (type === 'mono' && emitObj.replies < 1) {
             emitObj.replyMethod(
@@ -327,6 +331,19 @@ class Snub {
         pubPayload
       );
       if (typeof cb === 'function') cb(emitObj.listened);
+
+      // Surface no-listener error immediately for mono+reply instead of waiting for timeout.
+      if (emitObj.reply && type === 'mono' && emitObj.listened < 1) {
+        clearTimeout(replyTimout);
+        this.off(replyEventName);
+        emitObj.replyMethod(
+          null,
+          'Snub Error => Event timeout, no reply from : ' +
+            this.#prefix +
+            eventName
+        );
+      }
+
       return emitObj.listened;
     }
 
@@ -343,18 +360,18 @@ class Snub {
       const replies = [];
       emitObj.timeout = timeout || emitObj.timeout;
       return new Promise((resolve, reject) => {
+        let to;
+        const done = () => {
+          clearTimeout(to);
+          resolve(type === 'mono' ? replies[0] : replies);
+        };
         emitObj
           .replyAt((data, err) => {
             if (err) return reject(err);
-            let to = setTimeout((_) => {
-              resolve(type === 'mono' ? replies[0] : replies);
-            }, emitObj.timeout);
             replies.push(data);
-
-            if (replies.length >= expectedReplies) {
-              clearTimeout(to);
-              resolve(type === 'mono' ? replies[0] : replies);
-            }
+            if (replies.length >= expectedReplies) return done();
+            clearTimeout(to);
+            to = setTimeout(done, emitObj.timeout);
           }, emitObj.timeout)
           .send((count) => {
             if (count < 1)
@@ -438,9 +455,7 @@ class Snub {
         });
 
       if (event.once)
-        this.off(
-          event.pattern + (event.namespace ? '.' + event.namespace : '')
-        );
+        this.#remove(event);
     });
   }
 }
@@ -452,11 +467,7 @@ function justWait(ms = 1000) {
 }
 
 function generateUID() {
-  let firstPart = (Math.random() * 46656) | 0;
-  let secondPart = (Math.random() * 46656) | 0;
-  firstPart = ('000' + firstPart.toString(36)).slice(-3);
-  secondPart = ('000' + secondPart.toString(36)).slice(-3);
-  return firstPart + secondPart;
+  return randomBytes(8).toString('hex');
 }
 
 function stringifyJson(obj) {
