@@ -29,6 +29,7 @@ class Snub {
   #interceptors;
   #delayInterval = null;
   #emitRegistry = null;
+  #replyTimers = new Set();
 
   #redis;
   #pub;
@@ -138,11 +139,19 @@ class Snub {
 
   async close() {
     clearInterval(this.#delayInterval);
-    await Promise.all([
-      this.#redis.quit(),
-      this.#pub.quit(),
-      this.#sub.quit(),
-    ]);
+    this.#delayInterval = null;
+    // Pending reply timers would otherwise fire against dead connections.
+    for (const timer of this.#replyTimers) clearTimeout(timer);
+    this.#replyTimers.clear();
+    // Idempotent: shutdown paths genuinely run twice (signal handler plus an
+    // explicit teardown), and quit() on an ended connection rejects.
+    await Promise.all(
+      [this.#redis, this.#pub, this.#sub].map((c) =>
+        c.status === 'end'
+          ? Promise.resolve()
+          : c.quit().catch(() => c.disconnect())
+      )
+    );
   }
 
   async cancelDelay(jobId) {
@@ -362,6 +371,7 @@ class Snub {
         replyEventName = this.#prefix + '_monoReply:' + emitObj.key;
 
         replyTimout = setTimeout((_) => {
+          this.#replyTimers.delete(replyTimout);
           this.off(replyEventName);
           if (type === 'mono' && emitObj.replies < 1) {
             emitObj.replyMethod(
@@ -370,10 +380,13 @@ class Snub {
             );
           }
         }, emitObj.timeout);
+        this.#replyTimers.add(replyTimout);
 
-        setTimeout((_) => {
+        const sweepTimer = setTimeout((_) => {
+          this.#replyTimers.delete(sweepTimer);
           this.off(replyEventName);
         }, emitObj.timeout + 1000);
+        this.#replyTimers.add(sweepTimer);
 
         this.on(replyEventName, (rawReply) => {
           const [replyData, _registeredEvent] = rawReply;
@@ -392,6 +405,7 @@ class Snub {
           if (type === 'mono') {
             emitObj.replyMethod = (_) => {};
             clearTimeout(replyTimout);
+            this.#replyTimers.delete(replyTimout);
           }
         });
       }
@@ -405,6 +419,7 @@ class Snub {
       // Surface no-listener error immediately for mono+reply instead of waiting for timeout.
       if (emitObj.reply && type === 'mono' && emitObj.listened < 1) {
         clearTimeout(replyTimout);
+        this.#replyTimers.delete(replyTimout);
         this.off(replyEventName);
         emitObj.replyMethod(
           null,
@@ -524,7 +539,16 @@ class Snub {
       try {
         data = parseJson(message);
       } catch (parseErr) {
-        if (this.#config.debug) console.error(`[snub] Failed to parse message on "${channel}":`, parseErr.message, '— raw:', String(message).slice(0, 120));
+        // Anything that can PUBLISH to this Redis can send garbage, and a
+        // `{dataType:'Map', value:42}` body throws inside the reviver. Bail
+        // here — dereferencing the undefined result takes the process down.
+        console.error(
+          `[snub] Failed to parse message on "${channel}":`,
+          parseErr.message,
+          '— raw:',
+          String(message).slice(0, 120)
+        );
+        return;
       }
 
       // console.log('Snub pmessage data => ', pattern, data);
@@ -553,7 +577,26 @@ class Snub {
         if (intercept === false) return;
       }
 
-      event.method(data.contents, replyMethod, channel, event.pattern);
+      // A throwing handler must not take the instance down with it. Deliberately
+      // not awaited — awaiting would push the `once` removal below past the
+      // handler resolving and change once() timing.
+      try {
+        const result = event.method(
+          data.contents,
+          replyMethod,
+          channel,
+          event.pattern
+        );
+        if (result && typeof result.then === 'function')
+          result.catch((err) =>
+            console.error(
+              `[snub] Handler for "${event.pattern}" rejected:`,
+              err
+            )
+          );
+      } catch (err) {
+        console.error(`[snub] Handler for "${event.pattern}" threw:`, err);
+      }
       if (!data.reply)
         this.#stat({
           pattern: event.pattern,

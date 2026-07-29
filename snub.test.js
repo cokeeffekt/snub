@@ -716,6 +716,88 @@ test('offload — Map and Set survive the offload round-trip', async function ()
   await snubO.close();
 }, 10000);
 
+// --- fault isolation (B15, B16, B17) ---------------------------------------
+// A bad message or a throwing handler must not take the instance (or in a real
+// app, the process) down. The out-of-process crash behaviour is covered by
+// snub-smoke; these pin the in-process contract.
+
+test('fault — malformed message is dropped, instance keeps working (B15)', async function () {
+  var snubF = new Snub({ redisAuth: { port: 6379, host: 'localhost', db: 8 } });
+  var errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+  var received = [];
+  await snubF.on('test-fault-garbage', (p) => { received.push(p); });
+
+  await snubF.pub.publish('snub:test-fault-garbage', 'this is not json {{{');
+  await justWait(150);
+  expect(received.length).toBe(0);
+  expect(errSpy).toHaveBeenCalled();
+
+  // a well-formed message containing the internal Map tag with a non-iterable
+  // value throws inside the reviver — same path
+  await snubF.pub.publish(
+    'snub:test-fault-garbage',
+    JSON.stringify({ key: 'k', contents: { dataType: 'Map', value: 42 }, ts: Date.now() })
+  );
+  await justWait(150);
+  expect(received.length).toBe(0);
+
+  // instance still delivers afterwards
+  await snubF.poly('test-fault-garbage', { ok: true }).send();
+  await justWait(150);
+  expect(received).toEqual([{ ok: true }]);
+
+  errSpy.mockRestore();
+  await snubF.close();
+}, 10000);
+
+test('fault — a sync-throwing handler does not break the instance (B16)', async function () {
+  var snubF = new Snub({ redisAuth: { port: 6379, host: 'localhost', db: 8 } });
+  var errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+  var goodRan = 0;
+  await snubF.on('test-fault-throw', () => { throw new Error('handler exploded'); });
+  await snubF.on('test-fault-throw', () => { goodRan++; });
+
+  await snubF.poly('test-fault-throw', {}).send();
+  await justWait(200);
+
+  expect(goodRan).toBe(1); // sibling listener unaffected
+  expect(errSpy).toHaveBeenCalled();
+
+  await snubF.poly('test-fault-throw', {}).send();
+  await justWait(200);
+  expect(goodRan).toBe(2); // still delivering
+
+  errSpy.mockRestore();
+  await snubF.close();
+}, 10000);
+
+test('fault — a rejecting async handler does not break the instance (B16)', async function () {
+  var snubF = new Snub({ redisAuth: { port: 6379, host: 'localhost', db: 8 } });
+  var errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+  var goodRan = 0;
+  await snubF.on('test-fault-reject', () => Promise.reject(new Error('handler rejected')));
+  await snubF.on('test-fault-reject', () => { goodRan++; });
+
+  await snubF.poly('test-fault-reject', {}).send();
+  await justWait(200);
+
+  expect(goodRan).toBe(1);
+  expect(errSpy).toHaveBeenCalled();
+
+  errSpy.mockRestore();
+  await snubF.close();
+}, 10000);
+
+test('fault — close() is idempotent (B17)', async function () {
+  var snubF = new Snub({ redisAuth: { port: 6379, host: 'localhost', db: 8 } });
+  await snubF.close();
+  await expect(snubF.close()).resolves.not.toThrow();
+  await expect(snubF.close()).resolves.not.toThrow();
+}, 10000);
+
 afterAll(async () => {
   await snub.close();
 });
