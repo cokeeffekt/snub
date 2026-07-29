@@ -33,6 +33,12 @@ export interface SnubConfig {
   delayResolution?: number;
   /** Set false to skip delay queue polling on this instance. Default: true */
   processDelayQueue?: boolean;
+  /**
+   * Poly payloads larger than this many bytes are stored in redisStore and only the
+   * key is published on the bus. Applies to replies too, since they travel as poly.
+   * Set 0 or null to disable. Default: 524288 (512 KB)
+   */
+  offloadThreshold?: number | null;
   /** Called after each event is handled. Filtered to user events only. */
   stats?: StatsFn;
   /** ioredis connection options or URL for pub/sub connections. */

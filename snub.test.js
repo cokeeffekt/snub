@@ -568,6 +568,154 @@ test('cancelDelay returns false for unknown job id', async function () {
   expect(result).toBe(false);
 }, 10000);
 
+// --- large payload offload -------------------------------------------------
+// Poly payloads over `offloadThreshold` are stored in redisStore and only the key
+// is published, so a multi-MB reply never lands inline on the bus.
+
+// Small threshold keeps the test payloads cheap to build.
+function offloadSnub(overrides = {}) {
+  return new Snub({
+    redisAuth: { port: 6379, host: 'localhost', db: 8 },
+    offloadThreshold: 1024,
+    ...overrides,
+  });
+}
+
+// comfortably over 1024 bytes once serialized
+function bigString(bytes = 8192) {
+  return 'x'.repeat(bytes);
+}
+
+test('offload — large poly payload round-trips intact', async function () {
+  var snubO = offloadSnub();
+  var sent = { blob: bigString(), n: 42 };
+
+  var received = null;
+  await snubO.on('test-offload-poly', (payload) => { received = payload; });
+  await snubO.poly('test-offload-poly', sent).send();
+  await justWait(200);
+
+  expect(received).toEqual(sent);
+  await snubO.close();
+}, 10000);
+
+test('offload — large mono reply round-trips intact', async function () {
+  var snubO = offloadSnub();
+  var blob = bigString();
+
+  await snubO.on('test-offload-reply', (payload, reply) => {
+    reply({ blob: blob, echo: payload });
+  });
+
+  var result = await snubO.mono('test-offload-reply', 'ping').awaitReply();
+
+  expect(result.blob).toBe(blob);
+  expect(result.echo).toBe('ping');
+  await snubO.off('test-offload-reply');
+  await snubO.close();
+}, 10000);
+
+test('offload — the bus publish carries only the key, not the payload', async function () {
+  var snubO = offloadSnub();
+  var published = [];
+  var realPublish = snubO.pub.publish.bind(snubO.pub);
+  snubO.pub.publish = (channel, payload) => {
+    published.push([channel, payload]);
+    return realPublish(channel, payload);
+  };
+
+  await snubO.on('test-offload-small', () => {});
+  await snubO.poly('test-offload-small', { blob: 'tiny' }).send();
+  await snubO.poly('test-offload-small', { blob: bigString() }).send();
+  await justWait(200);
+
+  var [small, large] = published.map((p) => p[1]);
+  expect(small.startsWith('{')).toBe(true); // inline JSON
+  expect(large).toMatch(/^snub:_offload:[0-9a-f]+$/); // key only
+  expect(large.length).toBeLessThan(100);
+
+  snubO.pub.publish = realPublish;
+  await snubO.close();
+}, 10000);
+
+test('offload — under-threshold payloads still publish inline', async function () {
+  var snubO = offloadSnub();
+
+  var received = null;
+  await snubO.on('test-offload-under', (payload) => { received = payload; });
+
+  // key count delta, not absolute — earlier offload tests share the mock store
+  var before = (await snubO.redis.keys('snub:_offload:*')).length;
+  await snubO.poly('test-offload-under', { small: true }).send();
+  await justWait(200);
+  var after = (await snubO.redis.keys('snub:_offload:*')).length;
+
+  expect(received).toEqual({ small: true });
+  expect(after).toBe(before);
+  await snubO.close();
+}, 10000);
+
+test('offload — offloadThreshold: 0 disables offloading', async function () {
+  var snubO = offloadSnub({ offloadThreshold: 0 });
+  var published = [];
+  var realPublish = snubO.pub.publish.bind(snubO.pub);
+  snubO.pub.publish = (channel, payload) => {
+    published.push(payload);
+    return realPublish(channel, payload);
+  };
+
+  var sent = { blob: bigString() };
+  var received = null;
+  await snubO.on('test-offload-disabled', (payload) => { received = payload; });
+  await snubO.poly('test-offload-disabled', sent).send();
+  await justWait(200);
+
+  expect(received).toEqual(sent);
+  expect(published[0].startsWith('{')).toBe(true); // full payload went inline
+  expect(published[0].length).toBeGreaterThan(1024);
+
+  snubO.pub.publish = realPublish;
+  await snubO.close();
+}, 10000);
+
+test('offload — missing/expired key drops the message without throwing', async function () {
+  var snubO = offloadSnub();
+
+  var received = false;
+  await snubO.on('test-offload-missing', () => { received = true; });
+
+  // simulate a payload whose offload key has already expired out of redisStore
+  var errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  await snubO.pub.publish('snub:test-offload-missing', 'snub:_offload:doesnotexist');
+  await justWait(200);
+
+  expect(received).toBe(false);
+  expect(errSpy).toHaveBeenCalled();
+  errSpy.mockRestore();
+  await snubO.close();
+}, 10000);
+
+test('offload — Map and Set survive the offload round-trip', async function () {
+  var snubO = offloadSnub();
+  var sent = {
+    blob: bigString(),
+    m: new Map([['key', 'value']]),
+    s: new Set([1, 2, 3]),
+  };
+
+  var received = null;
+  await snubO.on('test-offload-mapset', (payload) => { received = payload; });
+  await snubO.poly('test-offload-mapset', sent).send();
+  await justWait(200);
+
+  expect(received.m instanceof Map).toBe(true);
+  expect(received.m.get('key')).toBe('value');
+  expect(received.s instanceof Set).toBe(true);
+  expect(received.s.has(3)).toBe(true);
+  expect(received.blob).toBe(sent.blob);
+  await snubO.close();
+}, 10000);
+
 afterAll(async () => {
   await snub.close();
 });

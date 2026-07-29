@@ -46,6 +46,7 @@ const snub = new Snub({
   monoWait: 50,           // max jitter in ms before workers race to claim mono messages
   prefix: 'snub',         // Redis key prefix
   processDelayQueue: true, // set false on instances that should not poll the delay queue
+  offloadThreshold: 512 * 1024, // poly payloads over this many bytes go via Redis, not the bus
 
   // Interceptor — runs before every handler. Return false to block.
   interceptor: async (payload, reply, listener, channel) => {
@@ -72,6 +73,7 @@ const snub = new Snub({
 | `nsSeparator` | string | `'.'` | Separator between event name and namespace |
 | `delayResolution` | number | `1000` | How often (ms) to poll the delay queue |
 | `processDelayQueue` | boolean | `true` | Set `false` to skip delay queue polling on this instance |
+| `offloadThreshold` | number | `524288` | Poly payloads larger than this many bytes are stored in `redisStore` and only the key is published. `0` disables. See [Large payloads](#large-payloads) |
 | `interceptor` | function \| function[] | passthrough | Run before each handler. Return `false` to block |
 | `stats` | function | no-op | Called after each user event is handled |
 | `debug` | boolean | `false` | Log internal events to console |
@@ -130,6 +132,41 @@ Cancel a previously scheduled delay job. Returns `true` if found and cancelled, 
 ### `snub.close()` → `Promise<void>`
 
 Gracefully shuts down: clears the delay interval and quits all Redis connections.
+
+### Large payloads
+
+Redis pub/sub buffers every published message per subscriber and serializes it on a
+single thread, so a multi-megabyte `PUBLISH` stalls the whole Redis instance — it
+shows up as slowlog entries on the channel that carried it.
+
+`mono` has always avoided this: the payload is written to `redisStore` under
+`<prefix>_mono:<key>` and only that key name goes on the bus. As of **4.3.0**
+`poly` does the same for anything over `offloadThreshold` (default 512 KB):
+
+1. The serialized payload is `SET` into `redisStore` at `<prefix>_offload:<key>`,
+   with a TTL of the emit's `timeout` + 1s.
+2. Only that key name is published on the channel.
+3. Subscribers detect the key, `GET` the body back, and hand it to your handlers
+   unchanged. Your handler code sees no difference.
+
+This matters most for **replies**, which travel back over `poly` on an internal
+`_monoReply:` channel. Before 4.3.0 a large reply to a `mono` request published
+inline at full size even though the request itself had been offloaded.
+
+The key is read but never deleted — `poly` is a broadcast and a delete by the first
+reader would starve the other subscribers. The TTL is the cleanup. If the key has
+expired before a subscriber reads it, the message is dropped and an error is logged.
+
+Set `offloadThreshold: 0` to disable it entirely and publish everything inline.
+
+> **Rolling upgrades:** the offload key is a wire-format change. An instance running
+> snub < 4.3.0 that is subscribed to the same channel will receive the key string and
+> fail to decode it. Upgrade every instance on a bus together — or deploy with
+> `offloadThreshold: 0` and turn it on once the whole fleet is on 4.3.0.
+>
+> This is worth checking in the middleware too: `snub-ws` and `snub-http` install
+> `snub` from npm into their own `node_modules`, so they may still resolve an older
+> core than your app does.
 
 ---
 

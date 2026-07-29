@@ -10,6 +10,8 @@ const DEFAULT_CONFIG = {
   nsSeparator: '.',
   delayResolution: 1000, // mono delay resolution in ms
   processDelayQueue: true, // set false on instances that should not poll the delay queue
+  offloadThreshold: 512 * 1024, // bytes; poly payloads larger than this are stored in
+  // redisStore and only the key is published. Set 0/null to disable.
   stats: (_) => {},
   redisAuth: null,
   redisStore: null,
@@ -43,6 +45,9 @@ class Snub {
     this.#interceptors = Array.isArray(this.#config.interceptor)
       ? this.#config.interceptor
       : [this.#config.interceptor];
+    // 0, null, false and negatives all mean "never offload".
+    if (!(this.#config.offloadThreshold >= 1))
+      this.#config.offloadThreshold = null;
 
     // config.debug = true;
     if (this.#config.debug) console.info('Snub Init => ', config);
@@ -332,6 +337,24 @@ class Snub {
 
       if (type === 'poly') {
         pubPayload = serializePayload();
+        // Large payloads (commonly `_monoReply` bodies) go into redisStore and only
+        // the key travels on the bus — a multi-MB PUBLISH stalls the whole Redis
+        // instance. Mono already works this way; this closes the gap for poly.
+        if (
+          this.#config.offloadThreshold &&
+          Buffer.byteLength(pubPayload, 'utf8') > this.#config.offloadThreshold
+        ) {
+          const offloadKey = this.#prefix + '_offload:' + emitObj.key;
+          // awaited, unlike snub-ws's fire-and-forget, so the value is in place
+          // before the publish below wakes any subscriber up
+          await this.#redis.set(
+            offloadKey,
+            pubPayload,
+            'EX',
+            Math.ceil((emitObj.timeout + 1000) / 1000)
+          );
+          pubPayload = offloadKey;
+        }
       }
 
       // handle reply
@@ -448,16 +471,44 @@ class Snub {
     return emitObj;
   }
 
-  #pmessage(pattern, channel, message) {
+  async #pmessage(pattern, channel, message) {
     pattern = pattern.replace(this.#prefix, '');
 
     const registeredEvents = this.#find(pattern);
     // console.log('Snub pmessage => ', pattern, registeredEvents, e);
+    if (!registeredEvents.length) return;
+
+    // Offloaded poly payloads publish only the key — fetch the body back once here
+    // rather than once per listener. GET only, never DEL: poly fans out, so a
+    // delete by the first reader would starve every other subscriber. The TTL set
+    // on publish is the cleanup.
+    if (
+      typeof message === 'string' &&
+      message.startsWith(this.#prefix + '_offload:')
+    ) {
+      let body;
+      try {
+        body = await this.#redis.get(message);
+      } catch (err) {
+        console.error(
+          `[snub] Failed to fetch offloaded payload for "${channel}":`,
+          err.message
+        );
+        return;
+      }
+      if (body == null) {
+        console.error(
+          `[snub] Offloaded payload for "${channel}" is missing or expired (${message}) — message dropped`
+        );
+        return;
+      }
+      message = body;
+    }
 
     registeredEvents.forEach(async (event) => {
       let data;
       // mono messages get delivered once.
-      if (message.includes(this.#prefix + '_mono:')) {
+      if (message.startsWith(this.#prefix + '_mono:')) {
         // wait is in ms, it will give all handlers a fighting chance to grab the message.
         await justWait(Math.round(Math.random() * this.#config.monoWait));
         const response = await this.#redis
