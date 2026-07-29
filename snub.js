@@ -26,6 +26,7 @@ class Snub {
   #nsSeparator;
   #interceptors;
   #delayInterval = null;
+  #emitRegistry = null;
 
   #redis;
   #pub;
@@ -45,6 +46,18 @@ class Snub {
 
     // config.debug = true;
     if (this.#config.debug) console.info('Snub Init => ', config);
+
+    // dev-only: warn when an emit builder is GC'd without ever being sent (B13).
+    // The held value carries a tiny `state` object, never `emitObj` itself, so
+    // registration does not keep the builder alive.
+    if (this.#config.debug && typeof FinalizationRegistry !== 'undefined') {
+      this.#emitRegistry = new FinalizationRegistry(({ eventName, type, state }) => {
+        if (!state.sent)
+          console.warn(
+            `[snub] ${type}('${eventName}') was created but never sent — did you forget .send()?`
+          );
+      });
+    }
 
     const filename = path.basename(__filename);
 
@@ -294,7 +307,15 @@ class Snub {
       return emitObj;
     };
 
+    // B13 — track whether this builder was ever sent, for the dev-mode
+    // unsent-builder warning. Kept separate from emitObj so the registry can
+    // hold it without pinning the builder in memory.
+    const sendState = { sent: false };
+    if (this.#emitRegistry)
+      this.#emitRegistry.register(emitObj, { eventName, type, state: sendState });
+
     async function send(cb) {
+      sendState.sent = true;
       let pubPayload = null;
       let replyEventName;
       let replyTimout;
@@ -372,6 +393,7 @@ class Snub {
     }
 
     async function sendDelay(seconds) {
+      sendState.sent = true;
       const when = emitObj.ts + seconds * 1000; // scheduled time
       const zsetKey = `${this.#prefix}_monoDelayQueue`;
       const jobKey = `${this.#prefix}_monoDelayJob:${emitObj.key}`;
