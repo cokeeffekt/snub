@@ -798,6 +798,66 @@ test('fault — close() is idempotent (B17)', async function () {
   await expect(snubF.close()).resolves.not.toThrow();
 }, 10000);
 
+// --- parseJson fast path ----------------------------------------------------
+// parseJson skips the per-value reviver when the source cannot contain a
+// dataType tag. These pin that the shortcut never changes what comes out.
+
+test('parseJson — tag-free payload round-trips identically', function () {
+  var obj = {
+    n: 1,
+    s: 'hello',
+    nested: { arr: [1, 2, { deep: true }], nil: null },
+    bool: false,
+  };
+  expect(snub.parseJson(snub.stringifyJson(obj))).toEqual(obj);
+});
+
+test('parseJson — nested Map/Set still revive via the slow path', function () {
+  var obj = {
+    outer: { inner: { m: new Map([['a', 1]]), s: new Set([1, 2]) } },
+    list: [new Map([['b', 2]])],
+  };
+  var out = snub.parseJson(snub.stringifyJson(obj));
+  expect(out.outer.inner.m instanceof Map).toBe(true);
+  expect(out.outer.inner.m.get('a')).toBe(1);
+  expect(out.outer.inner.s instanceof Set).toBe(true);
+  expect(out.outer.inner.s.has(2)).toBe(true);
+  expect(out.list[0] instanceof Map).toBe(true);
+  expect(out.list[0].get('b')).toBe(2);
+});
+
+test('parseJson — "dataType" appearing as a string value is harmless', function () {
+  // takes the slow path (the substring is present) but must not be transformed
+  var obj = { note: 'dataType', other: 'the "dataType" tag', dataTypeish: 'x' };
+  expect(snub.parseJson(snub.stringifyJson(obj))).toEqual(obj);
+});
+
+test('parseJson — a user object shaped like the tag still converts (unchanged)', function () {
+  // pre-existing documented behaviour: the tag is not namespaced, so user data
+  // shaped like it is converted. The fast path must not alter that either way.
+  var raw = JSON.stringify({ m: { dataType: 'Map', value: [['k', 'v']] } });
+  var out = snub.parseJson(raw);
+  expect(out.m instanceof Map).toBe(true);
+  expect(out.m.get('k')).toBe('v');
+});
+
+test('parseJson — Map/Set survive a large payload over the bus', async function () {
+  var snubP = new Snub({
+    redisAuth: { port: 6379, host: 'localhost', db: 8 },
+    offloadThreshold: 1024,
+  });
+  var sent = { blob: 'x'.repeat(8192), m: new Map([['k', 'v']]) };
+  var received = null;
+  await snubP.on('test-parse-large', (p) => { received = p; });
+  await snubP.poly('test-parse-large', sent).send();
+  await justWait(200);
+
+  expect(received.m instanceof Map).toBe(true);
+  expect(received.m.get('k')).toBe('v');
+  expect(received.blob).toBe(sent.blob);
+  await snubP.close();
+}, 10000);
+
 afterAll(async () => {
   await snub.close();
 });
