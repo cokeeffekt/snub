@@ -21,6 +21,30 @@ Snub lets your services talk to each other over Redis with minimal boilerplate. 
 npm install snub
 ```
 
+## Upgrading from 4.x
+
+**5.0.0 changes the wire format.** Poly payloads larger than `offloadThreshold`
+(default 512 KB) now publish a `redisStore` key instead of the body — see
+[Large payloads](#large-payloads). A subscriber running snub 4.x on the same bus
+receives that key as the message body and cannot decode it.
+
+Your application code does not change. There are no API changes in 5.0.0.
+
+Pick one of:
+
+- **Upgrade every instance on a bus together.** Simplest if you can deploy atomically.
+- **Deploy with `offloadThreshold: 0`, then enable it.** Ship 5.0.0 with offloading
+  off, wait until the whole fleet is on 5.0.0, then remove the setting. Safe for
+  rolling deploys.
+
+Check your middleware too: `snub-ws` and `snub-http` install `snub` from npm into
+their own `node_modules`, so they may still resolve a 4.x core even after your app
+is on 5.0.0.
+
+Everything else in 5.0.0 is a fix or an optimisation and needs no action — handler
+faults and malformed messages no longer crash the process, `close()` is idempotent,
+and payload parsing is several times faster.
+
 ## Setup
 
 ```js
@@ -140,7 +164,7 @@ single thread, so a multi-megabyte `PUBLISH` stalls the whole Redis instance —
 shows up as slowlog entries on the channel that carried it.
 
 `mono` has always avoided this: the payload is written to `redisStore` under
-`<prefix>_mono:<key>` and only that key name goes on the bus. As of **4.3.0**
+`<prefix>_mono:<key>` and only that key name goes on the bus. As of **5.0.0**
 `poly` does the same for anything over `offloadThreshold` (default 512 KB):
 
 1. The serialized payload is `SET` into `redisStore` at `<prefix>_offload:<key>`,
@@ -150,7 +174,7 @@ shows up as slowlog entries on the channel that carried it.
    unchanged. Your handler code sees no difference.
 
 This matters most for **replies**, which travel back over `poly` on an internal
-`_monoReply:` channel. Before 4.3.0 a large reply to a `mono` request published
+`_monoReply:` channel. Before 5.0.0 a large reply to a `mono` request published
 inline at full size even though the request itself had been offloaded.
 
 The key is read but never deleted — `poly` is a broadcast and a delete by the first
@@ -160,9 +184,9 @@ expired before a subscriber reads it, the message is dropped and an error is log
 Set `offloadThreshold: 0` to disable it entirely and publish everything inline.
 
 > **Rolling upgrades:** the offload key is a wire-format change. An instance running
-> snub < 4.3.0 that is subscribed to the same channel will receive the key string and
+> snub < 5.0.0 that is subscribed to the same channel will receive the key string and
 > fail to decode it. Upgrade every instance on a bus together — or deploy with
-> `offloadThreshold: 0` and turn it on once the whole fleet is on 4.3.0.
+> `offloadThreshold: 0` and turn it on once the whole fleet is on 5.0.0.
 >
 > This is worth checking in the middleware too: `snub-ws` and `snub-http` install
 > `snub` from npm into their own `node_modules`, so they may still resolve an older
