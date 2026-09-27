@@ -110,6 +110,12 @@ export default class Snub {
   /** Total number of registered event listeners. */
   get eventListenerCount(): number;
 
+  /**
+   * The normalised Redis key namespace, always ending in ':'.
+   * Middleware that writes its own keys should build them on this.
+   */
+  get prefix(): string;
+
   /** The storage Redis connection. */
   get redis(): Redis;
   /** The publish Redis connection. */
@@ -128,8 +134,9 @@ export default class Snub {
 
   /**
    * Register a setup plugin. The function receives the Snub instance.
+   * Resolves to whatever the plugin returns, e.g. a handle with close().
    */
-  use(method: (snub: Snub) => void): Promise<void>;
+  use<T = void>(method: (snub: Snub) => T | Promise<T>): Promise<T>;
 
   /**
    * Subscribe to an event or glob pattern.
