@@ -867,3 +867,21 @@ function justWait(ms = 1000) {
     setTimeout(resolve, ms);
   });
 }
+
+test('prefix getter exposes the normalised key namespace', function () {
+  expect(snub.prefix).toBe('snub:');
+  const custom = new Snub({ host: 'localhost', prefix: 'my:app:' });
+  expect(custom.prefix).toBe('myapp:');
+  return custom.close();
+});
+
+test('use() returns whatever the middleware returns', async function () {
+  const handle = { close: () => {} };
+  const seen = [];
+  const got = await snub.use((instance) => {
+    seen.push(instance);
+    return handle;
+  });
+  expect(seen[0]).toBe(snub);
+  expect(got).toBe(handle);
+});

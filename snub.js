@@ -175,6 +175,12 @@ class Snub {
   }
 
   // redid connections
+  // The normalised key namespace (always ends in ':'). Middleware that writes
+  // its own redis keys should build them on this so deployments sharing a db
+  // stay separate.
+  get prefix() {
+    return this.#prefix;
+  }
   get redis() {
     return this.#redis;
   }
@@ -200,8 +206,10 @@ class Snub {
   }
 
   // exposed functions
+  // Middleware may return a handle (snub-ws returns one with close()); pass it
+  // through so `const ws = await snub.use(SnubWs(cfg))` works.
   async use(method) {
-    if (typeof method === 'function') method(this);
+    if (typeof method === 'function') return method(this);
   }
 
   async on(iPattern, method) {
