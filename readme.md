@@ -336,6 +336,14 @@ snub.use((snubInstance) => {
 });
 ```
 
+Since **5.1.0** `use()` resolves to whatever the plugin returns, so a plugin can
+hand back a handle:
+
+```js
+const ws = await snub.use(SnubWs({ port: 8585 }));
+await ws.close();
+```
+
 ---
 
 ## Direct Redis Access
@@ -347,6 +355,10 @@ snub.redis // storage connection (redisStore)
 snub.pub   // publish connection
 snub.sub   // subscribe connection
 ```
+
+`snub.prefix` (5.1.0) is the normalised key namespace, always ending in `:`
+(`'snub:'` by default). Plugins that write their own Redis keys should build
+them on it so separate deployments sharing a database stay separate.
 
 ---
 
