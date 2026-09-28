@@ -136,6 +136,20 @@ snub.off('user:login.myApp');  // removes only the 'myApp' namespace listener
 
 Emits a single-delivery message. Only one listener across all instances receives it — whichever claims it first (with optional jitter via `monoWait`).
 
+Which listener that is comes down to a lottery. Each one waits a random time
+between 0 and `monoWait` ms and then tries to claim the message; the first
+claim wins and the rest drop it. Every listener draws from the same range, so
+each has the same chance of the shortest wait. What is left is latency to
+Redis: a listener that is closer claims sooner on an equal draw.
+
+Delivery is **at most once**. A message that is claimed by a listener which
+then dies, or that cannot be claimed because Redis is unreachable, is not
+retried. Use `awaitReply()` or `replyAt()` when the sender needs to know, they
+fail with a timeout.
+
+The claim relies on a single Redis answering every listener. It is not safe on
+Redis Cluster, or when listeners read from replicas.
+
 ### `snub.poly(channel, data)` → EmitObject
 
 Broadcasts to every listener on every instance.
