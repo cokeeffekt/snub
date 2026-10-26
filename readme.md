@@ -93,7 +93,7 @@ const snub = new Snub({
 | `redisStore` | object \| string | `null` | ioredis options or URL for storage. Falls back to `redisAuth` |
 | `prefix` | string | `'snub'` | Redis key namespace prefix |
 | `timeout` | number | `5000` | Default reply timeout in ms |
-| `monoWait` | number | `50` | Max random wait (ms) before workers race to claim a mono message |
+| `monoWait` | number | `50` | Max random wait (ms) before workers race to claim a mono message. Decides which instance wins; since 5.2.0 it no longer affects the order one instance sees |
 | `nsSeparator` | string | `'.'` | Separator between event name and namespace |
 | `delayResolution` | number | `1000` | How often (ms) to poll the delay queue |
 | `processDelayQueue` | boolean | `true` | Set `false` to skip delay queue polling on this instance |
@@ -149,6 +149,21 @@ fail with a timeout.
 
 The claim relies on a single Redis answering every listener. It is not safe on
 Redis Cluster, or when listeners read from replicas.
+
+**Ordering (5.2.0).** Within one instance, messages published to a channel are
+handed to the listener in publish order, and this does not depend on
+`monoWait`. Each message still draws its own random wait to claim, so the
+lottery between instances is untouched; only the handoff to the listener is
+ordered, per channel, through the interceptors and up to the handler call. It
+is listener **invocation** order, not completion order: an `async` handler that
+yields can still interleave its own work. It holds within one instance only.
+Two instances that each win messages from the same channel may process them in
+either order. One consequence to know about: a slow `async` interceptor now
+serialises that channel on that instance, one message per interceptor latency.
+
+When one instance has several listeners on a mono channel, one of them receives
+each message. Before 5.2.0 that was whichever drew the shortest wait; since
+5.2.0 it is the first registered, every time.
 
 ### `snub.poly(channel, data)` → EmitObject
 

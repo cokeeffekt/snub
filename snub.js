@@ -30,6 +30,7 @@ class Snub {
   #delayInterval = null;
   #emitRegistry = null;
   #replyTimers = new Set();
+  #monoChain = new Map();
 
   #redis;
   #pub;
@@ -497,7 +498,7 @@ class Snub {
   async #pmessage(pattern, channel, message) {
     pattern = pattern.replace(this.#prefix, '');
 
-    const registeredEvents = this.#find(pattern);
+    let registeredEvents = this.#find(pattern);
     // console.log('Snub pmessage => ', pattern, registeredEvents, e);
     if (!registeredEvents.length) return;
 
@@ -528,22 +529,8 @@ class Snub {
       message = body;
     }
 
-    registeredEvents.forEach(async (event) => {
+    const deliver = async (event) => {
       let data;
-      // mono messages get delivered once.
-      if (message.startsWith(this.#prefix + '_mono:')) {
-        // wait is in ms, it will give all handlers a fighting chance to grab the message.
-        await justWait(Math.round(Math.random() * this.#config.monoWait));
-        const response = await this.#redis
-          .pipeline([
-            ['get', message],
-            ['del', message],
-          ])
-          .exec();
-        const [getR, delR] = response;
-        if (delR[1] && getR[1]) message = getR[1];
-        else return;
-      }
       try {
         data = parseJson(message);
       } catch (parseErr) {
@@ -611,9 +598,84 @@ class Snub {
           replyTime: 0,
         });
 
-      if (event.once)
-        this.#remove(event);
+      if (event.once) this.#remove(event);
+    };
+
+    // poly fans out: every listener, straight away.
+    if (!message.startsWith(this.#prefix + '_mono:')) {
+      registeredEvents.forEach(deliver);
+      return;
+    }
+
+    // mono is delivered once. Two things happen here and they are deliberately
+    // kept apart:
+    //
+    // 1. The CLAIM — random wait, then GET+DEL — decides which instance gets the
+    //    message. It is independent per message and runs concurrently with every
+    //    other claim on the channel, because the draw is what spreads work
+    //    between rival instances. Making it sequential or monotone destroys that:
+    //    in a burst every instance's wait converges on monoWait and the nearest
+    //    one wins everything.
+    //
+    // 2. The HANDOFF to the listener is ordered per channel. A claimed body is
+    //    delivered only after the message that arrived ahead of it on this
+    //    channel has been handed off — through the interceptors and up to the
+    //    handler call, not its completion. Without this, two messages published
+    //    in one tick reached the listener in the order their dice fell.
+    //
+    // Keyed on channel, not pattern: a wildcard pattern spans channels that have
+    // no ordering relationship, and one queue for all of them would block them
+    // against each other for nothing.
+    const key = message;
+    const claim = (async () => {
+      // wait is in ms, it will give all handlers a fighting chance to grab the message.
+      await justWait(Math.round(Math.random() * this.#config.monoWait));
+      let response;
+      try {
+        response = await this.#redis
+          .pipeline([
+            ['get', key],
+            ['del', key],
+          ])
+          .exec();
+      } catch (err) {
+        // A claim that cannot reach Redis is a message this instance does not
+        // have. Swallowing it here keeps the chain below from ever rejecting.
+        console.error(
+          `[snub] Failed to claim mono message on "${channel}":`,
+          err.message
+        );
+        return null;
+      }
+      const [getR, delR] = response;
+      return delR[1] && getR[1] ? getR[1] : null;
+    })();
+
+    const prev = this.#monoChain.get(channel) || Promise.resolve();
+    let release;
+    const turn = new Promise((resolve) => (release = resolve));
+    this.#monoChain.set(channel, turn);
+    // Forget the channel once its queue drains, so the map tracks live traffic
+    // rather than every channel ever seen.
+    turn.then(() => {
+      if (this.#monoChain.get(channel) === turn)
+        this.#monoChain.delete(channel);
     });
+
+    try {
+      const body = await claim;
+      // Even a lost claim waits its turn before releasing, so the message after
+      // it cannot overtake the one before it.
+      await prev;
+      if (body == null) return;
+      message = body;
+      // One listener, as documented ("only one listener receives it"). Claiming
+      // per listener used to mean the local winner was whichever drew the
+      // shortest wait; now it is the first registered, every time.
+      await deliver(registeredEvents[0]);
+    } finally {
+      release();
+    }
   }
 }
 

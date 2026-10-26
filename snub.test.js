@@ -885,3 +885,35 @@ test('use() returns whatever the middleware returns', async function () {
   expect(seen[0]).toBe(snub);
   expect(got).toBe(handle);
 });
+
+test('mono delivers messages published in one tick in publish order', async function () {
+  // The per-message random wait used to reorder these. With the default
+  // monoWait of 50 this failed almost every time for 8 messages; it must now
+  // hold on every trial, since the order is structural rather than lucky.
+  const got = [];
+  await snub.on('test-mono-order', (n) => got.push(n));
+  for (let trial = 0; trial < 5; trial++) {
+    got.length = 0;
+    for (let i = 0; i < 8; i++) snub.mono('test-mono-order', i).send();
+    await justWait(250);
+    expect(got).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  }
+  await snub.off('test-mono-order');
+});
+
+test('mono order holds across channels that share a pattern', async function () {
+  // The gate is keyed per channel. Two channels under one wildcard listener
+  // must each keep their own order, and neither may lose a message.
+  const got = { a: [], b: [] };
+  await snub.on('test-mono-order-wild:*', (n, reply, channel) =>
+    got[channel.endsWith(':a') ? 'a' : 'b'].push(n)
+  );
+  for (let i = 0; i < 6; i++) {
+    snub.mono('test-mono-order-wild:a', i).send();
+    snub.mono('test-mono-order-wild:b', i).send();
+  }
+  await justWait(250);
+  expect(got.a).toEqual([0, 1, 2, 3, 4, 5]);
+  expect(got.b).toEqual([0, 1, 2, 3, 4, 5]);
+  await snub.off('test-mono-order-wild:*');
+});
